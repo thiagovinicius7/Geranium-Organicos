@@ -1,8 +1,8 @@
 {
-  "apiKey": "COLE_AQUI",
-  "authDomain": "COLE_AQUI",
-  "projectId": "COLE_AQUI",
-  "storageBucket": "COLE_AQUI",
-  "messagingSenderId": "COLE_AQUI",
-  "appId": "COLE_AQUI"
+  "apiKey": "AIzaSyDnvodjfg8hFMh1ctGYcsqco77Poa2M3xM",
+  "authDomain": "geranium-organicos.firebaseapp.com",
+  "projectId": "geranium-organicos",
+  "storageBucket": "geranium-organicos.firebasestorage.app",
+  "messagingSenderId": "856601171663",
+  "appId": "1:856601171663:web:aadf67a2178dab4f7049ba"
 }

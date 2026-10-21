@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
 import { collection, getDocs, updateDoc, doc, deleteDoc, writeBatch } from "firebase/firestore";
 import { db, deleteDocumentRest, writeDocumentRest } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
@@ -408,7 +409,8 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
           data: activeDate,
           cultura: p.cultura,
           talhao: p.talhao,
-          qtd: numericVal
+          qtd: numericVal,
+          ...launchStamp()
         };
         batch.set(newLogRef, payload);
 
@@ -680,7 +682,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                   Talhão {p.talhao}
                                 </span>
                                 {(!isNaN(Number(p.talhao)) && p.talhao.trim() !== "") && (
-                                  <button
+                                  <CanEdit><button
                                     onClick={() => handleToggleDisplayInSitio(p)}
                                     className={`text-[9px] font-bold px-1 py-0.5 rounded border ${
                                       p.displayInSitio
@@ -689,7 +691,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                     }`}
                                   >
                                     {p.displayInSitio ? "🌿 No Sítio" : "➡️ Mover Sítio"}
-                                  </button>
+                                  </button></CanEdit>
                                 )}
                               </div>
                               <h3 className="font-extrabold text-slate-800 text-sm mt-1">
@@ -743,13 +745,13 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                     </span>
                                   </div>
                                   {isColhendo ? (
-                                    <button
+                                    <CanEdit><button
                                       onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
                                       className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1.5 rounded-lg text-xs transition border border-slate-200"
                                       title="Transferir ID"
                                     >
                                       <ArrowLeftRight className="w-3.5 h-3.5" />
-                                    </button>
+                                    </button></CanEdit>
                                   ) : (
                                     <button
                                       onClick={() => handleIniciarColheitaManual(p.id!)}
@@ -763,13 +765,13 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                 </div>
                               ) : (
                                 isColhendo ? (
-                                  <button
+                                  <CanEdit><button
                                     onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
                                     className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition border border-slate-200"
                                   >
                                     <ArrowLeftRight className="w-3.5 h-3.5" />
                                     Mudar ID
-                                  </button>
+                                  </button></CanEdit>
                                 ) : (
                                   <button
                                     onClick={() => handleIniciarColheitaManual(p.id!)}
@@ -866,20 +868,20 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold font-mono text-emerald-700 text-xs mr-1">{log.qtd} {getCropHarvestUnit(selectedPlantingCultura)}</span>
-                        <button
+                        <CanFixHarvest record={log}><button
                           onClick={() => handleOpenEditLog(log)}
                           className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition"
                           title="Ajustar quantidade"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
+                        </button></CanFixHarvest>
+                        <CanFixHarvest record={log}><button
                           onClick={() => handleOpenDeleteLog(log)}
                           className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition"
                           title="Excluir este lançamento"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        </button></CanFixHarvest>
                       </div>
                     </div>
                   ))

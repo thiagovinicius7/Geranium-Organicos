@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { CanEdit, launchStamp } from "../lib/permissions";
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Purchase, Crop, Planting } from "../types";
@@ -261,6 +262,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
           quantidade: Number(item.quantidade),
           saldo: Number(item.quantidade),
           status: "Ativo",
+          ...launchStamp(),
         };
 
         batch.set(newDocRef, payload);
@@ -442,13 +444,13 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                           <p><span className="text-emerald-400 font-semibold">Qtde / Saldo:</span> {p.quantidade} / <strong className="text-white font-mono">{p.saldo}</strong></p>
                         </div>
                         <div className="pt-2 flex items-center justify-end gap-2 border-t border-emerald-800/50">
-                          <button
+                          <CanEdit><button
                             onClick={() => handleOpenEditPurchase(p)}
                             className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg text-xs transition cursor-pointer flex items-center gap-1"
                           >
                             <Edit2 className="w-3 h-3" />
                             Editar
-                          </button>
+                          </button></CanEdit>
                         </div>
                       </div>
                     ))}
@@ -503,15 +505,15 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                               </td>
                               <td className="p-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  <button
+                                  <CanEdit><button
                                     onClick={() => handleOpenEditPurchase(p)}
                                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-slate-200 flex items-center gap-1"
                                     title="Alterar dados e valores da compra"
                                   >
                                     <Edit2 className="w-3.5 h-3.5 text-slate-600" />
                                     Editar
-                                  </button>
-                                  <button
+                                  </button></CanEdit>
+                                  <CanEdit><button
                                     onClick={() => {
                                       setSelectedPurchaseToZero(p);
                                       setMotivoZerarOption("Mortalidade / Perda no viveiro");
@@ -520,7 +522,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                     className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
                                   >
                                     Zerar
-                                  </button>
+                                  </button></CanEdit>
                                 </div>
                               </td>
                             </tr>
@@ -570,15 +572,15 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                               </td>
                               <td className="p-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  <button
+                                  <CanEdit><button
                                     onClick={() => handleOpenEditPurchase(p)}
                                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-slate-200 flex items-center gap-1"
                                     title="Alterar dados e valores da compra"
                                   >
                                     <Edit2 className="w-3.5 h-3.5 text-slate-600" />
                                     Editar
-                                  </button>
-                                  <button
+                                  </button></CanEdit>
+                                  <CanEdit><button
                                     onClick={() => {
                                       setSelectedPurchaseToZero(p);
                                       setMotivoZerarOption("Estoque finalizado / Consumo total");
@@ -587,7 +589,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                     className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
                                   >
                                     Zerar
-                                  </button>
+                                  </button></CanEdit>
                                 </div>
                               </td>
                             </tr>
@@ -647,21 +649,21 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                   </td>
                                   <td className="p-3 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
-                                      <button
+                                      <CanEdit><button
                                         onClick={() => handleOpenEditPurchase(p)}
                                         className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1 rounded text-[11px] transition cursor-pointer border border-slate-300/60 flex items-center gap-1"
                                         title="Alterar dados e valores"
                                       >
                                         <Edit2 className="w-3 h-3 text-slate-600" />
                                         Editar
-                                      </button>
-                                      <button
+                                      </button></CanEdit>
+                                      <CanEdit><button
                                         onClick={() => handleRestaurarSaldo(p)}
                                         className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition cursor-pointer border border-emerald-100/40"
                                         title="Reativar e restaurar saldo no estoque"
                                       >
                                         Restaurar
-                                      </button>
+                                      </button></CanEdit>
                                     </div>
                                   </td>
                                 </tr>

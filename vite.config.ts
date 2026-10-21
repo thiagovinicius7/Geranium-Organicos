@@ -7,6 +7,19 @@ export default defineConfig(() => {
   return {
     base: './',
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          // Bibliotecas em arquivos separados: mudam pouco, então o celular
+          // mantém em cache entre uma atualização do app e outra.
+          manualChunks: {
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+            react: ['react', 'react-dom'],
+            ui: ['motion/react', 'lucide-react'],
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
 import { db, deleteDocumentRest, writeDocumentRest } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
@@ -290,7 +291,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
             data: activeDate,
             cultura: cult,
             talhao: th,
-            qtd: numericVal
+            qtd: numericVal,
+            ...launchStamp()
           };
           batch.set(newLogRef, payload);
         }
@@ -352,7 +354,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
           data: activeDate,
           cultura: p.cultura,
           talhao: p.talhao,
-          qtd: numericVal
+          qtd: numericVal,
+          ...launchStamp()
         };
         batch.set(newLogRef, payload);
 
@@ -889,7 +892,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                   <td className="p-4 text-center">
                                     <span className="font-bold text-slate-700 block">{p.talhao}</span>
                                     {(!isNaN(Number(p.talhao)) && p.talhao.trim() !== "") && (
-                                      <button
+                                      <CanEdit><button
                                         onClick={() => handleToggleDisplayInSitio(p)}
                                         title={p.displayInSitio ? "Voltar para grupo de Talhões Numéricos" : "Exibir no grupo Sítio sem alterar o número do talhão"}
                                         className={`mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded transition cursor-pointer border inline-flex items-center gap-1 ${
@@ -899,7 +902,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                         }`}
                                       >
                                         {p.displayInSitio ? "🌿 No Sítio (Restaurar)" : "➡️ Mover p/ Sítio"}
-                                      </button>
+                                      </button></CanEdit>
                                     )}
                                   </td>
                                   <td className="p-4 text-center">
@@ -939,14 +942,14 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                           </span>
                                         </div>
                                         {isColhendo ? (
-                                          <button
+                                          <CanEdit><button
                                             onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
                                             className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border border-slate-200"
                                             title="Trocar ID do canteiro"
                                           >
                                             <ArrowLeftRight className="w-3 h-3" />
                                             Troca ID
-                                          </button>
+                                          </button></CanEdit>
                                         ) : (
                                           <button
                                             onClick={() => handleIniciarColheitaManual(p.id!)}
@@ -960,13 +963,13 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                       </div>
                                     ) : (
                                       isColhendo ? (
-                                        <button
+                                        <CanEdit><button
                                           onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
                                           className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border border-slate-200"
                                         >
                                           <ArrowLeftRight className="w-3 h-3" />
                                           Troca ID
-                                        </button>
+                                        </button></CanEdit>
                                       ) : (
                                         <button
                                           onClick={() => handleIniciarColheitaManual(p.id!)}
@@ -1053,7 +1056,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                     {isAccordionOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
                                   </div>
                                 </button>
-                                <button
+                                <CanEdit><button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleOpenDeleteSession(sId, logs);
@@ -1062,7 +1065,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                   title="Excluir sessão inteira"
                                 >
                                   <Trash2 className="w-4 h-4" />
-                                </button>
+                                </button></CanEdit>
                               </div>
 
                               {/* Accordion Content */}
@@ -1082,20 +1085,20 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <span className="font-bold text-slate-900 font-mono text-sm mr-1">{log.qtd} {getCropHarvestUnit(log.cultura)}</span>
-                                          <button
+                                          <CanFixHarvest record={log}><button
                                             onClick={() => handleOpenEditLog(log)}
                                             className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition cursor-pointer"
                                             title="Editar quantidade da colheita"
                                           >
                                             <Edit2 className="w-3.5 h-3.5" />
-                                          </button>
-                                          <button
+                                          </button></CanFixHarvest>
+                                          <CanFixHarvest record={log}><button
                                             onClick={() => handleOpenDeleteLog(log)}
                                             className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition cursor-pointer"
                                             title="Excluir este lançamento"
                                           >
                                             <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
+                                          </button></CanFixHarvest>
                                         </div>
                                       </div>
                                     ))}
@@ -1155,20 +1158,20 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                         <td className="py-2.5 text-right text-emerald-600">{log.qtd} {getCropHarvestUnit(selectedPlantingCultura)}</td>
                         <td className="py-2.5 text-right">
                           <div className="flex items-center justify-end gap-1.5 font-sans">
-                            <button
+                            <CanFixHarvest record={log}><button
                               onClick={() => handleOpenEditLog(log)}
                               className="p-1 hover:bg-indigo-50 text-indigo-600 rounded transition cursor-pointer"
                               title="Editar quantidade"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
+                            </button></CanFixHarvest>
+                            <CanFixHarvest record={log}><button
                               onClick={() => handleOpenDeleteLog(log)}
                               className="p-1 hover:bg-rose-50 text-rose-600 rounded transition cursor-pointer"
                               title="Excluir este lançamento"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            </button></CanFixHarvest>
                           </div>
                         </td>
                       </tr>

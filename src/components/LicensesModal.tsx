@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { CanEdit } from "../lib/permissions";
 import { 
   collection, 
   getDocs, 
@@ -436,7 +437,7 @@ export default function LicensesModal({ isOpen, onClose, onNotify, onLicensesUpd
               Documentos Registrados ({licenses.length})
             </button>
 
-            <button
+            <CanEdit><button
               onClick={handleOpenNew}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer ${
                 activeTab === "form" && !editingId
@@ -446,7 +447,7 @@ export default function LicensesModal({ isOpen, onClose, onNotify, onLicensesUpd
             >
               <Plus className="w-4 h-4" />
               Cadastrar Nova Data / Licença
-            </button>
+            </button></CanEdit>
           </div>
 
           {activeTab === "list" && (
@@ -522,13 +523,13 @@ export default function LicensesModal({ isOpen, onClose, onNotify, onLicensesUpd
                       ? "Nenhum documento corresponde aos filtros selecionados." 
                       : "Cadastre as datas de validade do seu Selo Orgânico, Outorga de Água e outros documentos."}
                   </p>
-                  <button
+                  <CanEdit><button
                     onClick={handleOpenNew}
                     className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     Cadastrar Primeiro Documento
-                  </button>
+                  </button></CanEdit>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -610,14 +611,14 @@ export default function LicensesModal({ isOpen, onClose, onNotify, onLicensesUpd
                           </div>
 
                           <div className="flex items-center gap-1.5">
-                            <button
+                            <CanEdit><button
                               onClick={() => handleEdit(lic)}
                               className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition font-bold text-xs flex items-center gap-1 cursor-pointer"
                               title="Editar esta data / licença"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                               <span className="text-[11px]">Editar</span>
-                            </button>
+                            </button></CanEdit>
 
                             <button
                               onClick={() => setLicenseToDelete(lic)}
@@ -867,13 +868,13 @@ export default function LicensesModal({ isOpen, onClose, onNotify, onLicensesUpd
               >
                 Cancelar
               </button>
-              <button
+              <CanEdit><button
                 disabled={deleting}
                 onClick={handleDelete}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
               >
                 {deleting ? "Excluindo..." : "Sim, Excluir"}
-              </button>
+              </button></CanEdit>
             </div>
           </div>
         </div>

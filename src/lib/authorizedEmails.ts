@@ -1,4 +1,7 @@
-import { collection, getDocs, getDoc, setDoc, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, getDoc, setDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { AccessRole, normalizeRole } from "./permissions";
+
+export type { AccessRole };
 import { db } from "./firebase";
 
 export interface AuthorizedEmail {
@@ -6,7 +9,7 @@ export interface AuthorizedEmail {
   email: string;
   addedBy?: string;
   addedAt?: string;
-  role?: "admin" | "user";
+  role?: AccessRole;
 }
 
 export interface AuthSettings {
@@ -24,7 +27,6 @@ export const PERMANENT_ADMIN_EMAILS = [
   "rafaelmorenocampos@gmail.com"
 ];
 
-export type AccessRole = "admin" | "user";
 
 /**
  * Normalizes email to lowercase and trimmed string
@@ -108,7 +110,7 @@ export async function getAccessRole(email: string): Promise<AccessRole | null> {
       timeoutPromise
     ])) as any;
     if (docSnap && docSnap.exists()) {
-      return docSnap.data()?.role === "admin" ? "admin" : "user";
+      return normalizeRole(docSnap.data()?.role);
     }
 
     const settings = await getAuthSettings();
@@ -173,7 +175,7 @@ export async function getAuthorizedEmails(): Promise<AuthorizedEmail[]> {
           email: mail,
           addedBy: data.addedBy,
           addedAt: data.addedAt,
-          role: PERMANENT_ADMIN_EMAILS.some(a => normalizeEmail(a) === mail) ? "admin" : (data.role || "user")
+          role: PERMANENT_ADMIN_EMAILS.some(a => normalizeEmail(a) === mail) ? "admin" : normalizeRole(data.role)
         });
       }
     });
@@ -209,9 +211,13 @@ export async function getAuthorizedEmails(): Promise<AuthorizedEmail[]> {
 }
 
 /**
- * Adds a new email to the authorized_emails collection.
+ * Adds a new email to the authorized_emails collection with the given profile.
  */
-export async function addAuthorizedEmail(newEmail: string, addedByEmail: string): Promise<void> {
+export async function addAuthorizedEmail(
+  newEmail: string,
+  addedByEmail: string,
+  role: AccessRole = "user"
+): Promise<void> {
   const cleanEmail = normalizeEmail(newEmail);
   if (!cleanEmail || !cleanEmail.includes("@")) {
     throw new Error("Por favor, informe um endereço de e-mail válido.");
@@ -222,8 +228,15 @@ export async function addAuthorizedEmail(newEmail: string, addedByEmail: string)
     email: cleanEmail,
     addedBy: addedByEmail || "Administrador",
     addedAt: new Date().toISOString(),
-    role: PERMANENT_ADMIN_EMAILS.some(a => normalizeEmail(a) === cleanEmail) ? "admin" : "user"
+    role: PERMANENT_ADMIN_EMAILS.some(a => normalizeEmail(a) === cleanEmail) ? "admin" : role
   });
+}
+
+/**
+ * Changes the access profile of an authorized e-mail.
+ */
+export async function updateAuthorizedEmailRole(docId: string, role: AccessRole): Promise<void> {
+  await updateDoc(doc(db, "authorized_emails", docId), { role });
 }
 
 /**

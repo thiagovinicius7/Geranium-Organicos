@@ -9,8 +9,10 @@ import {
   getAuthSettings,
   saveAuthSettings,
   AuthSettings,
-  isEmailAuthorized
+  isEmailAuthorized,
+  updateAuthorizedEmailRole
 } from "../lib/authorizedEmails";
+import { AccessRole, ROLE_LABELS, ROLE_DESCRIPTIONS } from "../lib/permissions";
 import { 
   X, 
   UserPlus, 
@@ -40,6 +42,8 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
   const [emails, setEmails] = useState<AuthorizedEmail[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [newEmail, setNewEmail] = useState<string>("");
+  const [newRole, setNewRole] = useState<AccessRole>("lancador");
+  const [changingRoleId, setChangingRoleId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -243,7 +247,7 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
 
       for (const email of emailList) {
         if (!emails.some(item => normalizeEmail(item.email) === email)) {
-          await addAuthorizedEmail(email, currentUserEmail || "Administrador");
+          await addAuthorizedEmail(email, currentUserEmail || "Administrador", newRole);
           addedCount++;
         }
       }
@@ -266,6 +270,20 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
       onNotify(err.message || "Erro ao autorizar e-mail(s).", "error");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleChangeRole = async (item: AuthorizedEmail, role: AccessRole) => {
+    try {
+      setChangingRoleId(item.id);
+      await updateAuthorizedEmailRole(item.id, role);
+      setEmails(prev => prev.map(e => (e.id === item.id ? { ...e, role } : e)));
+      onNotify(`${item.email} agora é ${ROLE_LABELS[role]}.`, "success");
+    } catch (err) {
+      console.error(err);
+      onNotify("Erro ao mudar o perfil de acesso.", "error");
+    } finally {
+      setChangingRoleId(null);
     }
   };
 
@@ -390,6 +408,17 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
                   className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                 />
               </div>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value as AccessRole)}
+                disabled={isSubmitting}
+                title="Perfil de acesso"
+                className="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                {(["lancador", "user", "admin"] as AccessRole[]).map(r => (
+                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                ))}
+              </select>
               <button
                 type="submit"
                 disabled={isSubmitting || !newEmail.trim()}
@@ -398,6 +427,9 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
                 {isSubmitting ? "Liberando..." : "+ Liberar Acesso"}
               </button>
             </div>
+            <p className="text-[11px] text-emerald-800 leading-relaxed">
+              <strong>{ROLE_LABELS[newRole]}:</strong> {ROLE_DESCRIPTIONS[newRole]}
+            </p>
           </form>
 
           {/* Permission Tester Tool */}
@@ -503,6 +535,20 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
                         </div>
                       </div>
 
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                      {isPermanentAdmin ? null : (
+                        <select
+                          value={item.role || "user"}
+                          onChange={(e) => handleChangeRole(item, e.target.value as AccessRole)}
+                          disabled={isSelf || changingRoleId === item.id}
+                          title={isSelf ? "Não é possível mudar o seu próprio perfil" : "Perfil de acesso"}
+                          className="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-50"
+                        >
+                          {(["lancador", "user", "admin"] as AccessRole[]).map(r => (
+                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                          ))}
+                        </select>
+                      )}
                       <button
                         onClick={() => handleRemove(item)}
                         disabled={isPermanentAdmin || isSelf || deletingId === item.id}
@@ -513,10 +559,11 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
                             ? "Não é possível remover sua própria conta"
                             : "Remover autorização"
                         }
-                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed shrink-0 ml-2"
+                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed shrink-0"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                      </div>
                     </div>
                   );
                 })}

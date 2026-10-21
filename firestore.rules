@@ -2,19 +2,24 @@ rules_version = '2';
 
 // Regras de segurança do Geranium Orgânicos.
 //
-// Quem pode usar o sistema ("membro"): uma conta Google com e-mail
-// verificado que seja administrador permanente, esteja na coleção
-// authorized_emails, pertença a um domínio liberado ou entre com o
-// modo aberto ligado (metadata/auth_settings.isRestricted == false).
+// Perfis de acesso (campo "role" em authorized_emails):
+//   admin     Administrador: tudo, inclusive quem tem acesso.
+//   user      Editor: lê e altera todos os dados da produção.
+//   lancador  Lançamentos: lê tudo, registra plantios, colheitas e compras,
+//             e corrige ou apaga só as próprias colheitas nas primeiras 12 horas.
+//             Não altera culturas, licenças nem configurações, e não apaga
+//             plantios ou compras.
 //
-// Só administradores mudam quem tem acesso (authorized_emails e
-// metadata/auth_settings). Todo o resto é negado.
+// Domínios liberados e o modo aberto dão perfil Editor. Um e-mail cadastrado
+// vale pelo perfil do cadastro, mesmo que o domínio também esteja liberado.
 //
 // Mantenha isPermanentAdmin() igual a PERMANENT_ADMIN_EMAILS em
 // src/lib/authorizedEmails.ts.
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ---------- Quem é o usuário ----------
 
     function signedIn() {
       return request.auth != null
@@ -50,6 +55,10 @@ service cloud.firestore {
       return exists(authorizedPath());
     }
 
+    function listedRole() {
+      return get(authorizedPath()).data.get('role', 'user');
+    }
+
     function openMode() {
       return exists(settingsPath())
         && get(settingsPath()).data.get('isRestricted', true) == false;
@@ -61,31 +70,132 @@ service cloud.firestore {
         && ('@' + domain) in get(settingsPath()).data.get('allowedDomains', []);
     }
 
-    function isAdmin() {
-      return signedIn() && (
-        isPermanentAdmin()
-        || (isListed() && get(authorizedPath()).data.get('role', 'user') == 'admin')
-      );
-    }
-
     function isMember() {
       return signedIn() && (
         isPermanentAdmin() || isListed() || domainAllowed() || openMode()
       );
     }
 
-    // Dados da produção
-    match /crops/{id}     { allow read, write: if isMember(); }
-    match /purchases/{id} { allow read, write: if isMember(); }
-    match /plantings/{id} { allow read, write: if isMember(); }
-    match /harvests/{id}  { allow read, write: if isMember(); }
-    match /licenses/{id}  { allow read, write: if isMember(); }
+    function isAdmin() {
+      return signedIn() && (
+        isPermanentAdmin() || (isListed() && listedRole() == 'admin')
+      );
+    }
+
+    function isLauncher() {
+      return signedIn() && !isPermanentAdmin() && isListed() && listedRole() == 'lancador';
+    }
+
+    // Admin ou Editor.
+    function canEdit() {
+      return isMember() && !isLauncher();
+    }
+
+    // ---------- Regras do perfil Lançamentos ----------
+
+    function changed() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Todo lançamento novo registra quem lançou e quando (hora do servidor).
+    function stampedNow() {
+      return request.resource.data.criadoPor == request.auth.uid
+        && request.resource.data.criadoEm == request.time;
+    }
+
+    function ownRecentHarvest() {
+      return resource.data.get('criadoPor', '') == request.auth.uid
+        && resource.data.get('criadoEm', null) is timestamp
+        && request.time < resource.data.criadoEm + duration.value(12, 'h');
+    }
+
+    function validQty(data) {
+      return data.qtd is number && data.qtd > 0;
+    }
+
+    // Nova colheita.
+    function launcherCreatesHarvest() {
+      return isLauncher() && stampedNow() && validQty(request.resource.data);
+    }
+
+    // Corrige só a quantidade da própria colheita, nas primeiras 12 horas.
+    function launcherFixesHarvest() {
+      return isLauncher() && ownRecentHarvest()
+        && changed().hasOnly(['qtd']) && validQty(request.resource.data);
+    }
+
+    // Novo plantio começa no campo e sem colheita.
+    function launcherCreatesPlanting() {
+      return isLauncher() && stampedNow()
+        && request.resource.data.status == 'No campo'
+        && request.resource.data.totalColhido == 0;
+    }
+
+    // Efeito de uma colheita no plantio: total colhido e início da colheita.
+    function launcherUpdatesPlanting() {
+      return isLauncher()
+        && changed().hasOnly(['totalColhido', 'status'])
+        && request.resource.data.totalColhido is number
+        && request.resource.data.totalColhido >= 0
+        && resource.data.get('status', '') != 'Finalizado'
+        && (request.resource.data.status == resource.data.get('status', '')
+            || request.resource.data.status == 'Colhendo');
+    }
+
+    // Nova compra entra com o saldo cheio.
+    function launcherCreatesPurchase() {
+      return isLauncher() && stampedNow()
+        && request.resource.data.status == 'Ativo'
+        && request.resource.data.saldo == request.resource.data.quantidade;
+    }
+
+    // Efeito de um plantio no estoque: o saldo só pode diminuir.
+    function launcherUpdatesPurchase() {
+      return isLauncher()
+        && changed().hasOnly(['saldo', 'status'])
+        && request.resource.data.saldo is number
+        && request.resource.data.saldo >= 0
+        && request.resource.data.saldo <= resource.data.get('saldo', 0);
+    }
+
+    // ---------- Coleções ----------
+
+    match /crops/{id} {
+      allow read: if isMember();
+      allow write: if canEdit();
+    }
+
+    match /licenses/{id} {
+      allow read: if isMember();
+      allow write: if canEdit();
+    }
+
+    match /harvests/{id} {
+      allow read: if isMember();
+      allow create: if canEdit() || launcherCreatesHarvest();
+      allow update: if canEdit() || launcherFixesHarvest();
+      allow delete: if canEdit() || (isLauncher() && ownRecentHarvest());
+    }
+
+    match /plantings/{id} {
+      allow read: if isMember();
+      allow create: if canEdit() || launcherCreatesPlanting();
+      allow update: if canEdit() || launcherUpdatesPlanting();
+      allow delete: if canEdit();
+    }
+
+    match /purchases/{id} {
+      allow read: if isMember();
+      allow create: if canEdit() || launcherCreatesPurchase();
+      allow update: if canEdit() || launcherUpdatesPurchase();
+      allow delete: if canEdit();
+    }
 
     // Metadados. auth_settings decide quem entra: qualquer conta logada
     // pode lê-lo (o app precisa disso para checar o acesso), só admin altera.
     match /metadata/{id} {
       allow read: if (id == 'auth_settings' && signedIn()) || isMember();
-      allow write: if id == 'auth_settings' ? isAdmin() : isMember();
+      allow write: if id == 'auth_settings' ? isAdmin() : canEdit();
     }
 
     // Lista de e-mails autorizados. Cada conta pode consultar só o próprio
@@ -96,7 +206,7 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Qualquer outra coleção (inclusive a antiga system_users) fica fechada.
+    // Qualquer outra coleção fica fechada.
     match /{document=**} {
       allow read, write: if false;
     }

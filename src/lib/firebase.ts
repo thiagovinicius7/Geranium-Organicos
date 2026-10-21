@@ -1,12 +1,20 @@
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from "firebase/auth";
-import firebaseConfig from "../../firebase-applet-config.json";
+import firebaseConfig from "../../firebase-config.json";
+
+/**
+ * True when firebase-config.json still holds the placeholder values
+ * (the app's own Firebase project has not been configured yet).
+ */
+export const isFirebaseConfigured = Object.values(firebaseConfig).every(
+  v => typeof v === "string" && v.trim() !== "" && v !== "COLE_AQUI"
+);
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with the explicit database ID
-const dbId = (firebaseConfig as any).firestoreDatabaseId || "ai-studio-geraniumorgnicos-ad2fe72c-1e2c-497d-96f9-642f8693882f";
+// The app's own project uses the standard "(default)" Firestore database.
+const dbId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
   localCache: memoryLocalCache(),
@@ -156,6 +164,22 @@ export function toFirestoreValue(val: any): any {
   return { stringValue: String(val) };
 }
 
+/**
+ * Headers for Firestore REST calls. Security rules only allow signed-in,
+ * authorized users, so every REST request carries the user's Firebase ID token.
+ */
+async function restAuthHeaders(): Promise<Record<string, string>> {
+  const current = auth.currentUser;
+  if (!current) {
+    throw new Error("Sessão expirada. Entre novamente com sua conta Google.");
+  }
+  const idToken = await current.getIdToken();
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${idToken}`,
+  };
+}
+
 export async function writeDocumentRest(collectionId: string, documentId: string, data: any): Promise<any> {
   const projectId = firebaseConfig.projectId;
   const dbId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
@@ -181,9 +205,7 @@ export async function writeDocumentRest(collectionId: string, documentId: string
 
   const response = await fetch(url, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await restAuthHeaders(),
     body: JSON.stringify({ fields }),
   });
 
@@ -204,6 +226,7 @@ export async function deleteDocumentRest(collectionId: string, documentId: strin
 
   const response = await fetch(url, {
     method: "DELETE",
+    headers: await restAuthHeaders(),
   });
 
   if (!response.ok && response.status !== 404) {

@@ -14,11 +14,17 @@ export interface AuthSettings {
   allowedDomains: string[];
 }
 
+/**
+ * Administrators who always have access. Keep this list identical to
+ * isPermanentAdmin() in firestore.rules — the rules are what actually
+ * protect the data; this list only drives the interface.
+ */
 export const PERMANENT_ADMIN_EMAILS = [
   "thiagovinicius7@gmail.com",
-  "rafaelmorenocampos@gmail.com",
-  "certificadora@geranium.com.br"
+  "rafaelmorenocampos@gmail.com"
 ];
+
+export type AccessRole = "admin" | "user";
 
 /**
  * Normalizes email to lowercase and trimmed string
@@ -67,81 +73,63 @@ export async function saveAuthSettings(settings: AuthSettings): Promise<void> {
   });
 }
 
+function isPermanentAdmin(cleanEmail: string): boolean {
+  return PERMANENT_ADMIN_EMAILS.some(admin => normalizeEmail(admin) === cleanEmail);
+}
+
 /**
- * Checks if the given email is authorized to access the system.
- * Always allows permanent admin emails and checks Firestore for others.
+ * Returns the bare domain of an allowed-domain entry ("@exemplo.com" -> "exemplo.com").
  */
-export async function isEmailAuthorized(email: string): Promise<boolean> {
-  if (!email) return false;
+function bareDomain(entry: string): string {
+  return normalizeEmail(entry).replace(/^@/, "");
+}
+
+/**
+ * Works out what access the given e-mail has. Mirrors isMember()/isAdmin()
+ * in firestore.rules: permanent admins, e-mails in authorized_emails,
+ * allowed domains, or open mode. Returns null when there is no access.
+ */
+export async function getAccessRole(email: string): Promise<AccessRole | null> {
+  if (!email) return null;
   const cleanEmail = normalizeEmail(email);
 
-  // 1. Instant bypass for permanent administrators (instant access, 0 latency)
-  if (PERMANENT_ADMIN_EMAILS.some(admin => normalizeEmail(admin) === cleanEmail)) {
+  if (isPermanentAdmin(cleanEmail)) {
     syncAdminEmailToFirestore(cleanEmail).catch(console.error);
-    return true;
+    return "admin";
   }
 
   try {
-    // 2. Check global access settings (e.g. if open mode is enabled)
-    const settings = await getAuthSettings();
-    if (!settings.isRestricted) {
-      // Access is open to any Google account
-      return true;
-    }
-
-    // Check if user's domain is in allowedDomains (e.g., "@geranium.com.br")
-    if (settings.allowedDomains.some(d => cleanEmail.endsWith(normalizeEmail(d)))) {
-      return true;
-    }
-
-    const docId = getEmailDocId(cleanEmail);
-
-    // 3. Direct document lookup (fast, single document read)
-    const directDocPromise = getDoc(doc(db, "authorized_emails", docId));
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout ao verificar autorização no banco")), 5000)
+      setTimeout(() => reject(new Error("Timeout ao verificar autorização no banco")), 8000)
     );
 
-    const docSnap = (await Promise.race([directDocPromise, timeoutPromise])) as any;
+    const docSnap = (await Promise.race([
+      getDoc(doc(db, "authorized_emails", getEmailDocId(cleanEmail))),
+      timeoutPromise
+    ])) as any;
     if (docSnap && docSnap.exists()) {
-      return true;
+      return docSnap.data()?.role === "admin" ? "admin" : "user";
     }
 
-    // 4. Fallback: query collection in case document ID had a different format
-    const colRef = collection(db, "authorized_emails");
-    const snapshot = await getDocs(colRef);
-
-    if (snapshot.empty) {
-      console.log("authorized_emails collection empty. Seeding initial authorized emails...");
-      // Seed default admin emails and current user
-      const initialEmails = Array.from(new Set([...PERMANENT_ADMIN_EMAILS, cleanEmail]));
-      for (const mail of initialEmails) {
-        const id = getEmailDocId(mail);
-        await setDoc(doc(db, "authorized_emails", id), {
-          email: mail,
-          addedBy: "Sistema (Inicialização)",
-          addedAt: new Date().toISOString(),
-          role: PERMANENT_ADMIN_EMAILS.includes(mail) ? "admin" : "user"
-        });
-      }
-      return true;
+    const settings = await getAuthSettings();
+    if (!settings.isRestricted) {
+      return "user";
     }
-
-    // Check if cleanEmail matches any document in the collection
-    const isAllowed = snapshot.docs.some(d => {
-      const data = d.data();
-      return data.email && normalizeEmail(data.email) === cleanEmail;
-    });
-
-    return isAllowed;
+    const domain = cleanEmail.split("@")[1] || "";
+    if (domain && settings.allowedDomains.some(d => bareDomain(d) === domain)) {
+      return "user";
+    }
   } catch (err) {
     console.error("Erro ao verificar e-mail autorizado:", err);
-    // In case of Firestore connection issues, allow permanent admins
-    if (PERMANENT_ADMIN_EMAILS.some(admin => normalizeEmail(admin) === cleanEmail)) {
-      return true;
-    }
-    return false;
   }
+  return null;
+}
+
+/**
+ * Checks if the given email is authorized to access the system.
+ */
+export async function isEmailAuthorized(email: string): Promise<boolean> {
+  return (await getAccessRole(email)) !== null;
 }
 
 /**

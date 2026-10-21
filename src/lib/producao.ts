@@ -164,27 +164,76 @@ export function alemDoPrazo(p: Planting, crops: Crop[], hoje: string = hojeLocal
 export interface Expectativa {
   unidade: string;
   colhido: number;
-  /** Total esperado, ou null quando ninguém informou. */
+  /** Total esperado, ou null quando não há como estimar. */
   esperado: number | null;
   falta: number | null;
   percentual: number | null;
   /** Mudas/unidades colhidas por unidade: não deixa passar do plantado. */
   bloqueia: boolean;
+  /** De onde veio o esperado. */
+  origem: "plantado" | "informada" | "historico" | null;
+  /** Quantos plantios finalizados formam a média, quando origem = historico. */
+  amostras?: number;
 }
 
-export function expectativa(p: Planting, crops: Crop[]): Expectativa {
+export interface Rendimento {
+  /** Colhido por muda (ou por m², nas sementes). */
+  porUnidade: number;
+  amostras: number;
+}
+
+/** Rendimentos médios, por cultura e forma de plantio. */
+export type HistoricoRendimento = Map<string, Rendimento>;
+
+function chaveRendimento(cultura: string, unidadePlantio: string): string {
+  return `${(cultura || "").toLowerCase().trim()}|${unidadePlantio === "m²" ? "m2" : "un"}`;
+}
+
+/**
+ * Média do que cada cultura rendeu nos plantios já finalizados:
+ * total colhido ÷ quantidade plantada (mudas ou m²), ponderada pelo tamanho.
+ */
+export function calcularHistorico(plantings: Planting[]): HistoricoRendimento {
+  const soma = new Map<string, { colhido: number; plantado: number; n: number }>();
+  for (const p of plantings) {
+    const colhido = Number(p.totalColhido) || 0;
+    const plantado = Number(p.quantidade) || 0;
+    if (p.status !== "Finalizado" || colhido <= 0 || plantado <= 0) continue;
+    const k = chaveRendimento(p.cultura, p.unidade);
+    const acc = soma.get(k) || { colhido: 0, plantado: 0, n: 0 };
+    acc.colhido += colhido; acc.plantado += plantado; acc.n += 1;
+    soma.set(k, acc);
+  }
+  const out: HistoricoRendimento = new Map();
+  soma.forEach((v, k) => out.set(k, { porUnidade: v.colhido / v.plantado, amostras: v.n }));
+  return out;
+}
+
+export function expectativa(p: Planting, crops: Crop[], historico?: HistoricoRendimento): Expectativa {
   const unidade = unidadeColheita(crops, p.cultura);
   const colhido = Math.max(0, Number(p.totalColhido) || 0);
   const contavel = ehUnidade(unidade) && p.unidade === "Unidades";
   let esperado: number | null = null;
+  let origem: Expectativa["origem"] = null;
+  let amostras: number | undefined;
   if (contavel) {
     esperado = Math.max(0, (Number(p.quantidade) || 0) - (Number(p.perdas) || 0));
+    origem = "plantado";
   } else if (typeof p.estimativaColheita === "number" && p.estimativaColheita > 0) {
     esperado = p.estimativaColheita;
+    origem = "informada";
+  } else if (historico) {
+    const r = historico.get(chaveRendimento(p.cultura, p.unidade));
+    const plantado = Number(p.quantidade) || 0;
+    if (r && plantado > 0) {
+      esperado = Math.round(r.porUnidade * plantado * 10) / 10;
+      origem = "historico";
+      amostras = r.amostras;
+    }
   }
   const falta = esperado === null ? null : Math.max(0, esperado - colhido);
   const percentual = esperado ? Math.min(100, Math.round((colhido / esperado) * 100)) : null;
-  return { unidade, colhido, esperado, falta, percentual, bloqueia: contavel };
+  return { unidade, colhido, esperado, falta, percentual, bloqueia: contavel, origem, amostras };
 }
 
 export type ResultadoLimite =
@@ -196,8 +245,13 @@ export type ResultadoLimite =
  * Confere se lançar `acrescimo` passa do esperado. Para mudas/unidades bloqueia;
  * para kg, maço e outras unidades só avisa.
  */
-export function verificarLimite(p: Planting, crops: Crop[], acrescimo: number): ResultadoLimite {
-  const e = expectativa(p, crops);
+export function verificarLimite(
+  p: Planting,
+  crops: Crop[],
+  acrescimo: number,
+  historico?: HistoricoRendimento
+): ResultadoLimite {
+  const e = expectativa(p, crops, historico);
   if (e.esperado === null || acrescimo <= 0) return { tipo: "ok" };
   const novoTotal = e.colhido + acrescimo;
   if (novoTotal <= e.esperado + 1e-9) return { tipo: "ok" };
@@ -210,7 +264,7 @@ export function verificarLimite(p: Planting, crops: Crop[], acrescimo: number): 
   }
   return {
     tipo: "aviso",
-    mensagem: `${p.cultura} (talhão ${p.talhao}) passa da estimativa: ${fmt(novoTotal)} de ${fmt(e.esperado)} ${e.unidade}.`
+    mensagem: `${p.cultura} (talhão ${p.talhao}) passa da estimativa${e.origem === "historico" ? " pelo histórico" : ""}: ${fmt(novoTotal)} de ${fmt(e.esperado)} ${e.unidade}.`
   };
 }
 

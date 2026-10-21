@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
-import {
+import { calcularHistorico,
   statusCalculado, grupoColheita, GRUPOS_COLHEITA, hojeLocal, novoIdSessao, encontrarPlantio,
   colheitasDoPlantio, verificarLimite, lancarColheitas, ajustarColheita, excluirColheitas,
   iniciarColheita, mudarIdColheita, ItemColheita, formatarData
@@ -18,6 +18,8 @@ interface HarvestsProps {
 
 export default function Harvests({ onNotify }: HarvestsProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
+  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
+  const historico = useMemo(() => calcularHistorico(plantings), [plantings]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -211,7 +213,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
   const confirmarLimites = (itens: ItemColheita[]): boolean => {
     const avisos: string[] = [];
     for (const { plantio, qtd } of itens) {
-      const r = verificarLimite(plantio, crops, qtd);
+      const r = verificarLimite(plantio, crops, qtd, historico);
       if (r.tipo === "bloqueado") {
         onNotify(r.mensagem, "error");
         return false;
@@ -626,7 +628,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                     <span className="text-[10px] text-slate-400 font-medium block mt-1">Prev: {p.previsao ? p.previsao.split("-").reverse().slice(0, 2).join("/") : "—"}</span>
                                   </td>
                                   <td className="p-4 text-center text-xs">
-                                    <ProgressoColheita plantio={p} crops={crops} />
+                                    <ProgressoColheita plantio={p} crops={crops} historico={historico} />
                                     <div className="text-[10px] text-slate-400 font-sans mt-1">
                                       Plantado: {p.quantidade} {p.unidade === "m²" ? "m²" : "mudas"}
                                     </div>

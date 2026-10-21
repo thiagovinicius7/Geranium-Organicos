@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
-import {
+import { calcularHistorico,
   statusCalculado, grupoColheita, GRUPOS_COLHEITA, hojeLocal, novoIdSessao, encontrarPlantio,
   colheitasDoPlantio, verificarLimite, lancarColheitas, ajustarColheita, excluirColheitas,
   iniciarColheita, mudarIdColheita, ItemColheita, formatarData
@@ -32,6 +32,8 @@ interface MobileHarvestAppProps {
 
 export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarvestAppProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
+  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
+  const historico = useMemo(() => calcularHistorico(plantings), [plantings]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
@@ -262,7 +264,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
   const confirmarLimites = (itens: ItemColheita[]): boolean => {
     const avisos: string[] = [];
     for (const { plantio, qtd } of itens) {
-      const r = verificarLimite(plantio, crops, qtd);
+      const r = verificarLimite(plantio, crops, qtd, historico);
       if (r.tipo === "bloqueado") {
         onNotify(r.mensagem, "error");
         return false;
@@ -574,7 +576,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                 {calcStatus}
                               </button>
                               <div className="mt-1 w-32">
-                                <ProgressoColheita plantio={p} crops={crops} compacto />
+                                <ProgressoColheita plantio={p} crops={crops} historico={historico} compacto />
                               </div>
                             </div>
                           </div>

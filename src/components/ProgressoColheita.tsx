@@ -1,6 +1,6 @@
 import React from "react";
 import { Crop, Planting } from "../types";
-import { expectativa, fimPrevistoColheita, alemDoPrazo, formatarData } from "../lib/producao";
+import { expectativa, fimPrevistoColheita, alemDoPrazo, formatarData, HistoricoRendimento } from "../lib/producao";
 
 const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString("pt-BR");
 
@@ -8,8 +8,18 @@ const fmt = (n: number) => Number(n.toFixed(2)).toLocaleString("pt-BR");
  * Quanto do plantio já foi colhido, quanto falta e até quando colher.
  * Usado igual no computador e no celular.
  */
-export default function ProgressoColheita({ plantio, crops, compacto = false }: { plantio: Planting; crops: Crop[]; compacto?: boolean }) {
-  const e = expectativa(plantio, crops);
+export default function ProgressoColheita({
+  plantio,
+  crops,
+  historico,
+  compacto = false
+}: {
+  plantio: Planting;
+  crops: Crop[];
+  historico?: HistoricoRendimento;
+  compacto?: boolean;
+}) {
+  const e = expectativa(plantio, crops, historico);
   const fim = fimPrevistoColheita(plantio, crops);
   const atrasado = alemDoPrazo(plantio, crops);
 
@@ -29,12 +39,11 @@ export default function ProgressoColheita({ plantio, crops, compacto = false }: 
           </div>
           <div className="text-[10px] text-slate-500 font-semibold">
             {e.falta && e.falta > 0 ? `Falta ${fmt(e.falta)} ${e.unidade}` : "Tudo colhido"}
-            {!e.bloqueia && " (estimativa)"}
+            {e.origem === "informada" && " (estimativa)"}
+            {e.origem === "historico" && ` (média de ${e.amostras} plantio${(e.amostras || 0) > 1 ? "s" : ""})`}
           </div>
         </>
-      ) : (
-        <div className="text-[10px] text-slate-400">Sem estimativa de colheita</div>
-      )}
+      ) : null}
       {fim && (
         <div className={`text-[10px] font-semibold ${atrasado ? "text-rose-600" : "text-slate-400"}`}>
           {atrasado ? "⏰ Além do prazo — " : ""}colher até {formatarData(fim)}

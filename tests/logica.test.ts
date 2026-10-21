@@ -1,7 +1,7 @@
 // Testes da lógica de produção (status, limites, datas, vínculos).
 // Para rodar: npx esbuild tests/logica.test.ts --bundle --platform=node --format=cjs --outfile=/tmp/logica.cjs && node /tmp/logica.cjs
 
-import { statusCalculado, grupoColheita, expectativa, verificarLimite, hojeLocal, somarDias, diasEntre, fimPrevistoColheita, compraDoPlantio, colheitasDoPlantio } from "../src/lib/producao";
+import { calcularHistorico, statusCalculado, grupoColheita, expectativa, verificarLimite, hojeLocal, somarDias, diasEntre, fimPrevistoColheita, compraDoPlantio, colheitasDoPlantio } from "../src/lib/producao";
 let ok = 0, fail = 0;
 const eq = (n: string, a: any, b: any) => { const pass = JSON.stringify(a) === JSON.stringify(b); pass ? ok++ : fail++; console.log(pass ? "ok   " : "FALHOU", n, pass ? "" : `${JSON.stringify(a)} != ${JSON.stringify(b)}`); };
 const crops: any[] = [{ nome: "Alface", unidadeColheita: "UN", dias: 35, duracao: 30 }, { nome: "Tomate", unidadeColheita: "kg", dias: 100, duracao: 90 }];
@@ -29,4 +29,14 @@ eq("fim previsto = previsão + duração", fimPrevistoColheita(base, crops), "20
 eq("sem lote: não inventa compra", compraDoPlantio([{ id: "COMP-1", cultura: "Alface" } as any], { ...base, idLote: "" }), null);
 eq("lote vinculado é achado", compraDoPlantio([{ id: "COMP-1" } as any], { ...base, idLote: "comp-1" })?.id, "COMP-1");
 eq("colheitas ligadas por id ou docId", colheitasDoPlantio([{ idPlantio: "PLAN-1", data: "2026-10-02" }, { idPlantio: "d1", data: "2026-10-03" }, { idPlantio: "X", data: "2026-10-03" }] as any, base).length, 2);
+const fin = (cultura: string, quantidade: number, totalColhido: number, unidade = "Unidades") => ({ ...base, cultura, quantidade, totalColhido, unidade, status: "Finalizado" });
+const hist = calcularHistorico([fin("Tomate", 50, 100), fin("Tomate", 50, 120), fin("Tomate", 10, 999, "m²"), { ...base, cultura: "Tomate", status: "Colhendo", totalColhido: 500 }] as any);
+eq("média ponderada só de finalizados (2,2 kg/muda)", hist.get("tomate|un")?.porUnidade, 2.2);
+eq("separa muda de m²", hist.get("tomate|m2")?.amostras, 1);
+const tomNovo: any = { ...base, cultura: "Tomate", quantidade: 30, totalColhido: 10, estimativaColheita: undefined };
+eq("estimativa pelo histórico: 30 mudas x 2,2 = 66", expectativa(tomNovo, crops, hist).esperado, 66);
+eq("origem marcada como histórico", expectativa(tomNovo, crops, hist).origem, "historico");
+eq("estimativa informada tem prioridade", expectativa({ ...tomNovo, estimativaColheita: 40 }, crops, hist).esperado, 40);
+eq("histórico só avisa, não bloqueia", verificarLimite(tomNovo, crops, 100, hist).tipo, "aviso");
+eq("sem histórico da cultura: sem estimativa", expectativa({ ...tomNovo, cultura: "Quiabo" }, crops, hist).esperado, null);
 console.log(`\n${ok} ok, ${fail} falhas`); process.exit(fail ? 1 : 0);

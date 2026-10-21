@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { CanEdit, launchStamp } from "../lib/permissions";
-import {
+import { calcularHistorico,
   statusCalculado, STATUS_INFO, hojeLocal, somarDias, buscarCultura, unidadeColheita,
   colheitasDoPlantio
 } from "../lib/producao";
@@ -34,6 +34,8 @@ interface CanteiroItem {
 
 export default function Plantings({ onNotify }: PlantingsProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
+  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
+  const historico = useMemo(() => calcularHistorico(plantings), [plantings]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
@@ -984,7 +986,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                               placeholder="Ex: 40"
                               className="w-full px-3 py-2 bg-white border border-slate-200 text-xs text-slate-800 rounded-lg outline-none focus:border-emerald-500 font-mono font-bold"
                             />
-                            <p className="text-[10px] text-slate-400">Serve para mostrar quanto falta colher. Passar dela só gera um aviso.</p>
+                            <p className="text-[10px] text-slate-400">Pode deixar em branco: o sistema usa a média dos plantios já finalizados desta cultura. Passar da estimativa só gera um aviso.</p>
                           </div>
                         )}
 
@@ -1143,7 +1145,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               {/* Harvest block */}
               <div className="bg-indigo-50/35 p-4 rounded-xl border border-indigo-200/30 space-y-3">
                 <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-widest">🍓 Produção Acumulada e Colheitas</h4>
-                <ProgressoColheita plantio={selectedPlanting} crops={crops} />
+                <ProgressoColheita plantio={selectedPlanting} crops={crops} historico={historico} />
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Status atual:</span> <span className="font-bold text-indigo-700">{getStatusLabelAndColor(getCalculatedStatus(selectedPlanting)).label}</span></p>
                 {selectedPlanting.status === "Finalizado" && (
                   <>

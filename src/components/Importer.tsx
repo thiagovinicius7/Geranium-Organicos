@@ -123,6 +123,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
       "purchases",
       "plantings",
       "harvests",
+      "licenses",
       "authorized_emails",
       "metadata"
     ];

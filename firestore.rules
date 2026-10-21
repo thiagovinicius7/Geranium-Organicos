@@ -1,44 +1,104 @@
 rules_version = '2';
+
+// Regras de segurança do Geranium Orgânicos.
+//
+// Quem pode usar o sistema ("membro"): uma conta Google com e-mail
+// verificado que seja administrador permanente, esteja na coleção
+// authorized_emails, pertença a um domínio liberado ou entre com o
+// modo aberto ligado (metadata/auth_settings.isRestricted == false).
+//
+// Só administradores mudam quem tem acesso (authorized_emails e
+// metadata/auth_settings). Todo o resto é negado.
+//
+// Mantenha isPermanentAdmin() igual a PERMANENT_ADMIN_EMAILS em
+// src/lib/authorizedEmails.ts.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Crops Collection
-    match /crops/{cropId} {
-      allow read, write: if true;
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
     }
 
-    // Purchases & Stock Collection
-    match /purchases/{purchaseId} {
-      allow read, write: if true;
+    function userEmail() {
+      return request.auth.token.email.lower();
     }
 
-    // Plantings Collection
-    match /plantings/{plantingId} {
-      allow read, write: if true;
+    // Mesmo formato de getEmailDocId() no app.
+    function emailDocId() {
+      return userEmail().replace('[^a-zA-Z0-9_.]', '_');
     }
 
-    // Harvest Logs Collection
-    match /harvests/{harvestId} {
-      allow read, write: if true;
+    function isPermanentAdmin() {
+      return userEmail() in [
+        'thiagovinicius7@gmail.com',
+        'rafaelmorenocampos@gmail.com'
+      ];
     }
 
-    // Metadata Collection
-    match /metadata/{metaId} {
-      allow read, write: if true;
+    function authorizedPath() {
+      return /databases/$(database)/documents/authorized_emails/$(emailDocId());
     }
 
-    // Licenses & Compliance Records Collection
-    match /licenses/{licenseId} {
-      allow read, write: if true;
+    function settingsPath() {
+      return /databases/$(database)/documents/metadata/auth_settings;
     }
 
-    // Authorized Emails Collection
-    match /authorized_emails/{emailId} {
-      allow read, write: if true;
+    function isListed() {
+      return exists(authorizedPath());
     }
 
-    // Default rule
+    function openMode() {
+      return exists(settingsPath())
+        && get(settingsPath()).data.get('isRestricted', true) == false;
+    }
+
+    function domainAllowed() {
+      let domain = userEmail().split('@')[1];
+      return exists(settingsPath())
+        && ('@' + domain) in get(settingsPath()).data.get('allowedDomains', []);
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        isPermanentAdmin()
+        || (isListed() && get(authorizedPath()).data.get('role', 'user') == 'admin')
+      );
+    }
+
+    function isMember() {
+      return signedIn() && (
+        isPermanentAdmin() || isListed() || domainAllowed() || openMode()
+      );
+    }
+
+    // Dados da produção
+    match /crops/{id}     { allow read, write: if isMember(); }
+    match /purchases/{id} { allow read, write: if isMember(); }
+    match /plantings/{id} { allow read, write: if isMember(); }
+    match /harvests/{id}  { allow read, write: if isMember(); }
+    match /licenses/{id}  { allow read, write: if isMember(); }
+
+    // Metadados. auth_settings decide quem entra: qualquer conta logada
+    // pode lê-lo (o app precisa disso para checar o acesso), só admin altera.
+    match /metadata/{id} {
+      allow read: if (id == 'auth_settings' && signedIn()) || isMember();
+      allow write: if id == 'auth_settings' ? isAdmin() : isMember();
+    }
+
+    // Lista de e-mails autorizados. Cada conta pode consultar só o próprio
+    // registro (para saber se tem acesso); membros veem a lista; só admin altera.
+    match /authorized_emails/{id} {
+      allow get: if signedIn() && id == emailDocId();
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    // Qualquer outra coleção (inclusive a antiga system_users) fica fechada.
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

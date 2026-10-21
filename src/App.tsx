@@ -10,14 +10,9 @@ import UserGuide from "./components/UserGuide";
 import MobileHarvestApp from "./components/MobileHarvestApp";
 import GeraniumLogo from "./components/GeraniumLogo";
 import { seedDatabaseIfEmpty } from "./components/SeedingData";
-import { auth, googleSignIn, logout } from "./lib/firebase";
-import { isEmailAuthorized, PERMANENT_ADMIN_EMAILS, normalizeEmail } from "./lib/authorizedEmails";
-import { 
-  loginWithCredentials, 
-  getSavedSystemUserSession, 
-  clearSystemUserSession, 
-  AppAuthUser 
-} from "./lib/systemAuth";
+import MigrationPanel from "./components/MigrationPanel";
+import { auth, googleSignIn, logout, isFirebaseConfigured } from "./lib/firebase";
+import { getAccessRole, AccessRole } from "./lib/authorizedEmails";
 import AuthorizedEmailsModal from "./components/AuthorizedEmailsModal";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { 
@@ -37,17 +32,31 @@ import {
   HelpCircle,
   LogOut,
   ShieldCheck,
-  Lock,
   Smartphone,
-  UserCheck,
-  KeyRound,
-  Eye,
-  EyeOff,
-  Shield
+  DatabaseZap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest";
+type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest" | "migration";
+
+interface AppAuthUser {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL?: string | null;
+  role: AccessRole;
+}
+
+function toAppUser(u: User, role: AccessRole): AppAuthUser {
+  const email = u.email || "";
+  return {
+    uid: u.uid,
+    displayName: u.displayName || email.split("@")[0],
+    email,
+    photoURL: u.photoURL,
+    role
+  };
+}
 
 interface Notification {
   id: string;
@@ -68,29 +77,18 @@ export default function App() {
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [user, setUser] = useState<AppAuthUser | null>(() => getSavedSystemUserSession());
+  const [user, setUser] = useState<AppAuthUser | null>(null);
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [unauthorizedEmail, setUnauthorizedEmail] = useState<string | null>(null);
   const [isAuthorizedModalOpen, setIsAuthorizedModalOpen] = useState<boolean>(false);
-  const [isCertificadoraModalOpen, setIsCertificadoraModalOpen] = useState<boolean>(false);
-
-  // Login form state
-  const [usernameInput, setUsernameInput] = useState<string>("Certificadora");
-  const [passwordInput, setPasswordInput] = useState<string>("");
-  const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [credentialsError, setCredentialsError] = useState<string | null>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isSubscribed = true;
 
-    // If already logged in via saved system session (e.g. Certificadora), finish loading immediately
-    const savedUser = getSavedSystemUserSession();
-    if (savedUser) {
-      setUser(savedUser);
+    if (!isFirebaseConfigured) {
       setLoadingAuth(false);
-      seedDatabaseIfEmpty().catch(console.error);
+      return;
     }
 
     // Safety fallback timer: guarantee loadingAuth turns off within 2.5 seconds
@@ -105,63 +103,27 @@ export default function App() {
       clearTimeout(fallbackTimer);
       if (!isSubscribed) return;
 
-      // If user is already logged in as a system user (Certificadora), don't override unless Google user logged in
-      if (!currentUser) {
-        if (!getSavedSystemUserSession()) {
-          if (isSubscribed) {
-            setUser(null);
-            setLoadingAuth(false);
-          }
-        } else {
-          if (isSubscribed) setLoadingAuth(false);
-        }
+      if (!currentUser || !currentUser.email) {
+        setUser(null);
+        setLoadingAuth(false);
         return;
       }
 
-      if (currentUser && currentUser.email) {
-        setLoadingAuth(true);
-        try {
-          const authorized = await isEmailAuthorized(currentUser.email);
-          if (isSubscribed) {
-            if (authorized) {
-              const authUser: AppAuthUser = {
-                uid: currentUser.uid,
-                displayName: currentUser.displayName || currentUser.email.split("@")[0],
-                email: currentUser.email,
-                photoURL: currentUser.photoURL,
-                role: "admin"
-              };
-              setUser(authUser);
-              setUnauthorizedEmail(null);
-              seedDatabaseIfEmpty().catch(console.error);
-            } else {
-              setUnauthorizedEmail(currentUser.email);
-              setUser(null);
-              await logout().catch(console.error);
-            }
-          }
-        } catch (err) {
-          console.error("Auth check error:", err);
-          if (isSubscribed) {
-            const isPermAdmin = PERMANENT_ADMIN_EMAILS.some(
-              admin => normalizeEmail(admin) === normalizeEmail(currentUser.email || "")
-            );
-            if (isPermAdmin) {
-              setUser({
-                uid: currentUser.uid,
-                displayName: currentUser.displayName || currentUser.email.split("@")[0],
-                email: currentUser.email,
-                photoURL: currentUser.photoURL,
-                role: "admin"
-              });
-              setUnauthorizedEmail(null);
-            } else {
-              setUser(null);
-            }
-          }
-        } finally {
-          if (isSubscribed) setLoadingAuth(false);
+      setLoadingAuth(true);
+      try {
+        const role = await getAccessRole(currentUser.email);
+        if (!isSubscribed) return;
+        if (role) {
+          setUser(toAppUser(currentUser, role));
+          setUnauthorizedEmail(null);
+          seedDatabaseIfEmpty().catch(console.error);
+        } else {
+          setUnauthorizedEmail(currentUser.email);
+          setUser(null);
+          await logout().catch(console.error);
         }
+      } finally {
+        if (isSubscribed) setLoadingAuth(false);
       }
     });
 
@@ -184,44 +146,11 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      clearSystemUserSession();
       await logout().catch(() => {});
       setUser(null);
       addNotification("Sessão encerrada com sucesso.", "success");
     } catch (err: any) {
       addNotification("Erro ao desconectar da conta.", "error");
-    }
-  };
-
-  const handleCredentialsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCredentialsError(null);
-
-    if (!usernameInput.trim()) {
-      setCredentialsError("Informe o nome de usuário ou e-mail.");
-      return;
-    }
-    if (!passwordInput.trim()) {
-      setCredentialsError("Informe a senha de acesso.");
-      return;
-    }
-
-    try {
-      setIsSigningIn(true);
-      const systemUser = await loginWithCredentials(usernameInput, passwordInput);
-      if (systemUser) {
-        setUser(systemUser);
-        setUnauthorizedEmail(null);
-        setIsCertificadoraModalOpen(false);
-        addNotification(`Acesso liberado! Bem-vindo(a), ${systemUser.displayName}!`, "success");
-        seedDatabaseIfEmpty().catch(console.error);
-      } else {
-        setCredentialsError("Usuário ou senha incorretos. Verifique os dados digitados.");
-      }
-    } catch (err: any) {
-      setCredentialsError("Erro ao autenticar. Tente novamente.");
-    } finally {
-      setIsSigningIn(false);
     }
   };
 
@@ -235,7 +164,25 @@ export default function App() {
     { id: "mobile_harvest" as const, label: "App Celular (Colheita)", icon: Smartphone },
     { id: "import" as const, label: "Importar Planilha", icon: FileSpreadsheet },
     { id: "guide" as const, label: "Guia de Uso", icon: HelpCircle },
+    ...(user?.role === "admin"
+      ? [{ id: "migration" as const, label: "Migrar Dados", icon: DatabaseZap }]
+      : []),
   ];
+
+  if (!isFirebaseConfigured) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-slate-800 font-sans">
+        <div className="max-w-md bg-white border border-amber-200 rounded-3xl p-6 shadow-lg text-center space-y-3">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+          <h1 className="font-extrabold text-lg">Banco de dados não configurado</h1>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Preencha o arquivo <code className="font-mono text-xs bg-slate-100 px-1 rounded">firebase-config.json</code> com
+            a configuração do seu projeto Firebase. O passo a passo está em <strong>MIGRACAO.md</strong>.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loadingAuth) {
     return (
@@ -284,16 +231,9 @@ export default function App() {
                 const result = await googleSignIn(false);
                 if (result && result.user) {
                   const userEmail = result.user.email || "";
-                  const authorized = await isEmailAuthorized(userEmail);
-                  if (authorized) {
-                    const authUser: AppAuthUser = {
-                      uid: result.user.uid,
-                      displayName: result.user.displayName || userEmail.split("@")[0],
-                      email: userEmail,
-                      photoURL: result.user.photoURL,
-                      role: "admin"
-                    };
-                    setUser(authUser);
+                  const role = await getAccessRole(userEmail);
+                  if (role) {
+                    setUser(toAppUser(result.user, role));
                     setUnauthorizedEmail(null);
                     addNotification(`Bem-vindo, ${result.user.displayName || userEmail}!`, "success");
                   } else {
@@ -317,7 +257,7 @@ export default function App() {
             disabled={isSigningIn}
             className="w-full mt-6 flex items-center justify-center gap-3 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md hover:shadow-lg transition duration-150 disabled:opacity-50 cursor-pointer"
           >
-            {isSigningIn && !isCertificadoraModalOpen ? (
+            {isSigningIn ? (
               <>
                 <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -337,124 +277,7 @@ export default function App() {
             )}
           </button>
 
-          {/* Small Discreet Certificadora Button */}
-          <div className="w-full mt-6 pt-5 border-t border-slate-100 flex items-center justify-center">
-            <button
-              type="button"
-              onClick={() => {
-                setUsernameInput("Certificadora");
-                setPasswordInput("");
-                setCredentialsError(null);
-                setIsCertificadoraModalOpen(true);
-                setTimeout(() => {
-                  passwordInputRef.current?.focus();
-                }, 100);
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer border border-transparent hover:border-emerald-200"
-            >
-              <Shield className="w-3.5 h-3.5 text-emerald-600" />
-              Acesso Certificadora
-            </button>
-          </div>
         </div>
-
-        {/* Certificadora Login Modal */}
-        {isCertificadoraModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-            <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl relative">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-emerald-50 text-emerald-700 rounded-2xl border border-emerald-100">
-                    <Shield className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base font-extrabold text-slate-900 leading-tight">
-                      Acesso Certificadora
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Informe o usuário e senha de auditoria
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsCertificadoraModalOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {credentialsError && (
-                <div className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2 text-rose-800 text-xs font-semibold animate-fade-in">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                  {credentialsError}
-                </div>
-              )}
-
-              <form onSubmit={handleCredentialsSubmit} className="mt-4 space-y-3.5 text-left">
-                <div>
-                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600 mb-1">
-                    Usuário ou E-mail
-                  </label>
-                  <div className="relative">
-                    <UserCheck className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={usernameInput}
-                      onChange={(e) => setUsernameInput(e.target.value)}
-                      placeholder="ex: Certificadora"
-                      disabled={isSigningIn}
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600 mb-1">
-                    Senha de Acesso
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      ref={passwordInputRef}
-                      type={showPassword ? "text" : "password"}
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="••••••••"
-                      disabled={isSigningIn}
-                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsCertificadoraModalOpen(false)}
-                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSigningIn}
-                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl transition disabled:opacity-50 cursor-pointer shadow-xs"
-                  >
-                    {isSigningIn ? "Validando..." : "Entrar"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
         {/* Global Floating Notifications inside Login */}
         <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none print:hidden px-4">
@@ -576,10 +399,6 @@ export default function App() {
                 className="w-9 h-9 rounded-full border border-slate-200 shrink-0" 
                 referrerPolicy="no-referrer" 
               />
-            ) : user.role === "certificadora" ? (
-              <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                <Shield className="w-5 h-5" />
-              </div>
             ) : (
               <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
                 {user.displayName?.charAt(0) || "U"}
@@ -592,20 +411,15 @@ export default function App() {
                 </span>
               </div>
               <div className="flex items-center gap-1 mt-1">
-                {user.role === "certificadora" ? (
-                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                    Certificadora
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-slate-400 truncate">
+                                  <span className="text-[10px] text-slate-400 truncate">
                     {user.email}
                   </span>
-                )}
               </div>
             </div>
           </div>
 
           <div className="flex flex-col gap-2">
+            {user.role === "admin" && (
             <button
               onClick={() => setIsAuthorizedModalOpen(true)}
               className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 hover:border-emerald-200 transition duration-150 cursor-pointer"
@@ -613,6 +427,7 @@ export default function App() {
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
               E-mails Autorizados
             </button>
+            )}
 
             <button
               onClick={handleLogout}
@@ -687,10 +502,6 @@ export default function App() {
                         className="w-9 h-9 rounded-full border border-slate-200 shrink-0" 
                         referrerPolicy="no-referrer" 
                       />
-                    ) : user.role === "certificadora" ? (
-                      <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                        <Shield className="w-5 h-5" />
-                      </div>
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
                         {user.displayName?.charAt(0) || "U"}
@@ -701,20 +512,15 @@ export default function App() {
                         {user.displayName}
                       </span>
                       <div className="flex items-center gap-1 mt-1">
-                        {user.role === "certificadora" ? (
-                          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                            Certificadora
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 truncate">
+                                                  <span className="text-[10px] text-slate-400 truncate">
                             {user.email}
                           </span>
-                        )}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-2 px-4">
+                    {user.role === "admin" && (
                     <button
                       onClick={() => {
                         setIsAuthorizedModalOpen(true);
@@ -725,6 +531,7 @@ export default function App() {
                       <ShieldCheck className="w-4 h-4 text-emerald-600" />
                       E-mails Autorizados
                     </button>
+                    )}
 
                     <button
                       onClick={handleLogout}
@@ -758,6 +565,7 @@ export default function App() {
               {activeTab === "traceability" && <Traceability onNotify={addNotification} />}
               {activeTab === "import" && <Importer onNotify={addNotification} />}
               {activeTab === "guide" && <UserGuide />}
+              {activeTab === "migration" && user.role === "admin" && <MigrationPanel onNotify={addNotification} />}
             </motion.div>
           </AnimatePresence>
         </main>

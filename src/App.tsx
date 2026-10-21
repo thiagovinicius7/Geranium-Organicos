@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useRef } from "react";
-import Dashboard from "./components/Dashboard";
-import Crops from "./components/Crops";
-import Purchases from "./components/Purchases";
-import Plantings from "./components/Plantings";
-import Harvests from "./components/Harvests";
-import Traceability from "./components/Traceability";
-import Importer from "./components/Importer";
-import UserGuide from "./components/UserGuide";
-import MobileHarvestApp from "./components/MobileHarvestApp";
+import React, { useState, useEffect, useMemo, lazy, Suspense } from "react";
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const Crops = lazy(() => import("./components/Crops"));
+const Purchases = lazy(() => import("./components/Purchases"));
+const Plantings = lazy(() => import("./components/Plantings"));
+const Harvests = lazy(() => import("./components/Harvests"));
+const Traceability = lazy(() => import("./components/Traceability"));
+const Importer = lazy(() => import("./components/Importer"));
+const UserGuide = lazy(() => import("./components/UserGuide"));
+const MobileHarvestApp = lazy(() => import("./components/MobileHarvestApp"));
 import GeraniumLogo from "./components/GeraniumLogo";
 import { seedDatabaseIfEmpty } from "./components/SeedingData";
-import MigrationPanel from "./components/MigrationPanel";
 import { auth, googleSignIn, logout, isFirebaseConfigured } from "./lib/firebase";
 import { getAccessRole, AccessRole } from "./lib/authorizedEmails";
 import AuthorizedEmailsModal from "./components/AuthorizedEmailsModal";
+import { PermissionsProvider, buildPermissions, ROLE_LABELS } from "./lib/permissions";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { 
   LayoutDashboard, 
@@ -33,11 +33,10 @@ import {
   LogOut,
   ShieldCheck,
   Smartphone,
-  DatabaseZap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest" | "migration";
+type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest";
 
 interface AppAuthUser {
   uid: string;
@@ -82,6 +81,11 @@ export default function App() {
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [unauthorizedEmail, setUnauthorizedEmail] = useState<string | null>(null);
   const [isAuthorizedModalOpen, setIsAuthorizedModalOpen] = useState<boolean>(false);
+
+  const permissions = useMemo(
+    () => buildPermissions(user?.role || "lancador", user?.uid || null),
+    [user?.role, user?.uid]
+  );
 
   useEffect(() => {
     let isSubscribed = true;
@@ -162,11 +166,10 @@ export default function App() {
     { id: "harvests" as const, label: "Colheita Diária", icon: Droplets },
     { id: "traceability" as const, label: "Rastreabilidade", icon: Search },
     { id: "mobile_harvest" as const, label: "App Celular (Colheita)", icon: Smartphone },
-    { id: "import" as const, label: "Importar Planilha", icon: FileSpreadsheet },
-    { id: "guide" as const, label: "Guia de Uso", icon: HelpCircle },
-    ...(user?.role === "admin"
-      ? [{ id: "migration" as const, label: "Migrar Dados", icon: DatabaseZap }]
+    ...(permissions.canEdit
+      ? [{ id: "import" as const, label: "Importar Planilha", icon: FileSpreadsheet }]
       : []),
+    { id: "guide" as const, label: "Guia de Uso", icon: HelpCircle },
   ];
 
   if (!isFirebaseConfigured) {
@@ -177,7 +180,7 @@ export default function App() {
           <h1 className="font-extrabold text-lg">Banco de dados não configurado</h1>
           <p className="text-sm text-slate-600 leading-relaxed">
             Preencha o arquivo <code className="font-mono text-xs bg-slate-100 px-1 rounded">firebase-config.json</code> com
-            a configuração do seu projeto Firebase. O passo a passo está em <strong>MIGRACAO.md</strong>.
+            a configuração do seu projeto Firebase. O passo a passo está em <strong>ACESSO.md</strong>.
           </p>
         </div>
       </div>
@@ -314,11 +317,14 @@ export default function App() {
 
   if (activeTab === "mobile_harvest") {
     return (
+      <PermissionsProvider value={permissions}>
       <div className="min-h-screen bg-slate-900">
-        <MobileHarvestApp 
-          onNotify={addNotification} 
-          onExitMobile={() => setActiveTab("dashboard")} 
-        />
+        <Suspense fallback={<TabLoading dark />}>
+          <MobileHarvestApp 
+            onNotify={addNotification} 
+            onExitMobile={() => setActiveTab("dashboard")} 
+          />
+        </Suspense>
         {/* Floating Notifications */}
         <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4">
           <AnimatePresence>
@@ -349,10 +355,12 @@ export default function App() {
           </AnimatePresence>
         </div>
       </div>
+      </PermissionsProvider>
     );
   }
 
   return (
+    <PermissionsProvider value={permissions}>
     <div className="min-h-screen bg-slate-50 flex text-slate-800 font-sans print:bg-white print:text-black">
       
       {/* Sidebar (Desktop) - Hidden during Print */}
@@ -411,9 +419,12 @@ export default function App() {
                 </span>
               </div>
               <div className="flex items-center gap-1 mt-1">
-                                  <span className="text-[10px] text-slate-400 truncate">
-                    {user.email}
-                  </span>
+                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md shrink-0">
+                  {ROLE_LABELS[user.role]}
+                </span>
+                <span className="text-[10px] text-slate-400 truncate">
+                  {user.email}
+                </span>
               </div>
             </div>
           </div>
@@ -512,9 +523,12 @@ export default function App() {
                         {user.displayName}
                       </span>
                       <div className="flex items-center gap-1 mt-1">
-                                                  <span className="text-[10px] text-slate-400 truncate">
-                            {user.email}
-                          </span>
+                        <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md shrink-0">
+                          {ROLE_LABELS[user.role]}
+                        </span>
+                        <span className="text-[10px] text-slate-400 truncate">
+                          {user.email}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -557,15 +571,16 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.15 }}
             >
+              <Suspense fallback={<TabLoading />}>
               {activeTab === "dashboard" && <Dashboard onChangeTab={setActiveTab} onNotify={addNotification} />}
               {activeTab === "crops" && <Crops onNotify={addNotification} />}
               {activeTab === "purchases" && <Purchases onNotify={addNotification} />}
               {activeTab === "plantings" && <Plantings onNotify={addNotification} />}
               {activeTab === "harvests" && <Harvests onNotify={addNotification} />}
               {activeTab === "traceability" && <Traceability onNotify={addNotification} />}
-              {activeTab === "import" && <Importer onNotify={addNotification} />}
+              {activeTab === "import" && permissions.canEdit && <Importer onNotify={addNotification} />}
               {activeTab === "guide" && <UserGuide />}
-              {activeTab === "migration" && user.role === "admin" && <MigrationPanel onNotify={addNotification} />}
+              </Suspense>
             </motion.div>
           </AnimatePresence>
         </main>
@@ -609,6 +624,15 @@ export default function App() {
         onNotify={addNotification}
       />
 
+    </div>
+    </PermissionsProvider>
+  );
+}
+
+function TabLoading({ dark = false }: { dark?: boolean }) {
+  return (
+    <div className={`flex items-center justify-center py-24 text-sm font-semibold ${dark ? "text-emerald-200" : "text-slate-400"}`}>
+      Carregando…
     </div>
   );
 }

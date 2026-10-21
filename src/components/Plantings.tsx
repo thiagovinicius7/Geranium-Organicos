@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { CanEdit, launchStamp } from "../lib/permissions";
 import { collection, getDocs, addDoc, updateDoc, doc, writeBatch, query, orderBy, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Purchase, Crop, Harvest } from "../types";
@@ -304,6 +305,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
           unidade: c.tipo === "Semente" ? "m²" : "Unidades",
           aduboQt: Number(c.aduboQt) || 0,
           aduboComp: c.aduboComp.trim() || "Nenhum",
+          ...launchStamp(),
         };
 
         // Deduct from purchase stock batch if not perene
@@ -1124,19 +1126,19 @@ export default function Plantings({ onNotify }: PlantingsProps) {
             {/* Modal actions */}
             <div className="p-6 border-t border-slate-200 flex gap-3 bg-slate-50/50">
               {selectedPlanting.status !== "Finalizado" && (
-                <button
+                <CanEdit><button
                   onClick={() => handleOpenFinalize(selectedPlanting.id!)}
                   className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
                 >
                   🏁 Finalizar Plantio
-                </button>
+                </button></CanEdit>
               )}
-              <button
+              <CanEdit><button
                 onClick={handleOpenEdit}
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
               >
                 ✏️ Editar
-              </button>
+              </button></CanEdit>
               <button
                 onClick={() => setIsDetailOpen(false)}
                 className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition cursor-pointer border border-slate-200"

@@ -19,6 +19,10 @@ export interface Purchase {
   saldo: number;
   status: "Ativo" | "Esgotado" | string;
   motivoZerar?: string;
+  // Quem lançou e quando (lançamentos novos)
+  criadoPor?: string;
+  criadoPorEmail?: string;
+  criadoEm?: any;
 }
 
 export interface Planting {
@@ -40,6 +44,10 @@ export interface Planting {
   perdas?: number;
   obs?: string;
   displayInSitio?: boolean;
+  // Quem lançou e quando (lançamentos novos)
+  criadoPor?: string;
+  criadoPorEmail?: string;
+  criadoEm?: any;
 }
 
 export interface Harvest {
@@ -51,6 +59,10 @@ export interface Harvest {
   talhao: string;
   qtd: number;
   unidade?: string;
+  // Quem lançou e quando (lançamentos novos)
+  criadoPor?: string;
+  criadoPorEmail?: string;
+  criadoEm?: any;
 }
 
 export interface WeatherDay {

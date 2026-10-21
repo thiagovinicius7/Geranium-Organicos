@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { CanEdit, usePermissions } from "../lib/permissions";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Crop } from "../types";
@@ -10,6 +11,7 @@ interface CropsProps {
 }
 
 export default function Crops({ onNotify }: CropsProps) {
+  const { canEdit } = usePermissions();
   const [crops, setCrops] = useState<Crop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [search, setSearch] = useState<string>("");
@@ -306,7 +308,7 @@ export default function Crops({ onNotify }: CropsProps) {
                 <p className="text-slate-500 text-sm mt-1">Gerencie a lista de plantas do seu banco de dados orgânicos.</p>
               </div>
               <div className="flex items-center gap-2.5 self-stretch sm:self-auto">
-                <button
+                <CanEdit><button
                   onClick={handleOpenDeduplicateModal}
                   className={`flex items-center justify-center gap-2 font-semibold px-4 py-2.5 rounded-xl shadow-xs transition duration-150 cursor-pointer border ${
                     duplicatesSummary.length > 0
@@ -317,14 +319,14 @@ export default function Crops({ onNotify }: CropsProps) {
                 >
                   <GitMerge className="w-4 h-4" />
                   Unificar Duplicadas {duplicatesSummary.length > 0 && `(${duplicatesSummary.length})`}
-                </button>
-                <button
+                </button></CanEdit>
+                <CanEdit><button
                   onClick={openNewForm}
                   className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-xs transition duration-150 justify-center cursor-pointer"
                 >
                   <Plus className="w-5 h-5" />
                   Nova Cultura
-                </button>
+                </button></CanEdit>
               </div>
             </div>
 
@@ -342,12 +344,12 @@ export default function Crops({ onNotify }: CropsProps) {
                     </p>
                   </div>
                 </div>
-                <button
+                <CanEdit><button
                   onClick={handleOpenDeduplicateModal}
                   className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition cursor-pointer shrink-0"
                 >
                   Unificar Agora
-                </button>
+                </button></CanEdit>
               </div>
             )}
 
@@ -409,7 +411,8 @@ export default function Crops({ onNotify }: CropsProps) {
                                     handleInlineUnitChange(c, val);
                                   }
                                 }}
-                                className="appearance-none font-extrabold text-xs px-3 py-1.5 pr-7 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 rounded-xl border border-emerald-200/80 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-200/50 outline-none cursor-pointer transition-all shadow-2xs font-mono"
+                                disabled={!canEdit}
+                                className="disabled:cursor-default disabled:opacity-80 appearance-none font-extrabold text-xs px-3 py-1.5 pr-7 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 rounded-xl border border-emerald-200/80 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-200/50 outline-none cursor-pointer transition-all shadow-2xs font-mono"
                                 title="Clique para alterar a unidade de colheita desta cultura diretamente"
                               >
                                 <option value="kg">kg (Quilograma)</option>
@@ -434,20 +437,20 @@ export default function Crops({ onNotify }: CropsProps) {
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.duracao} dias</td>
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <button
+                              <CanEdit><button
                                 onClick={() => openEditForm(c)}
                                 className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs transition duration-150 border border-slate-200/50 cursor-pointer"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                                 Editar
-                              </button>
-                              <button
+                              </button></CanEdit>
+                              <CanEdit><button
                                 onClick={() => handleDeleteSingleCrop(c)}
                                 className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
                                 title="Excluir cultura"
                               >
                                 <Trash2 className="w-4 h-4" />
-                              </button>
+                              </button></CanEdit>
                             </div>
                           </td>
                         </tr>

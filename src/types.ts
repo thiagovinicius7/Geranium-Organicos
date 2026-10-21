@@ -35,7 +35,7 @@ export interface Planting {
   talhao: string;
   quantidade: number;
   previsao: string; // estimated first harvest YYYY-MM-DD or DD/MM/YYYY
-  status: "No campo" | "Esperando colheita" | "Colhendo" | "Finalizado";
+  status: "No campo" | "Esperando colheita" | "Colhendo" | "Finalizado" | string;
   totalColhido: number;
   unidade: string; // "Unidades" or "m²"
   aduboQt?: number;
@@ -44,6 +44,8 @@ export interface Planting {
   perdas?: number;
   obs?: string;
   displayInSitio?: boolean;
+  /** Estimativa de colheita (kg, maço…) quando não dá para contar por unidade. */
+  estimativaColheita?: number;
   // Quem lançou e quando (lançamentos novos)
   criadoPor?: string;
   criadoPorEmail?: string;
@@ -59,6 +61,7 @@ export interface Harvest {
   talhao: string;
   qtd: number;
   unidade?: string;
+  idLote?: string; // compra de origem, copiada do plantio
   // Quem lançou e quando (lançamentos novos)
   criadoPor?: string;
   criadoPorEmail?: string;

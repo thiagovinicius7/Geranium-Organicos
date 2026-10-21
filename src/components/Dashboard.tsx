@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { hojeLocal, statusCalculado } from "../lib/producao";
 import { collection, getDocs, query, orderBy, limit, doc, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Purchase, Planting, Harvest, WeatherDay, SystemMetadata, LicenseRecord } from "../types";
@@ -186,12 +187,11 @@ export default function Dashboard({ onChangeTab, onNotify }: DashboardProps) {
   };
 
   // Dynamic values
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = hojeLocal();
 
   const filteredAtrasados = allPlantings.filter(p => {
-    if (!p.previsao || p.status === "Finalizado" || p.status === "Colhendo") return false;
-    const isDelayed = p.previsao < todayStr;
-    if (!isDelayed) return false;
+    // Mesmo critério das outras telas: atrasado 15 dias depois da previsão.
+    if (!p.previsao || statusCalculado(p, todayStr) !== "Colheita atrasada") return false;
 
     if (selectedMonth !== "Todos") {
       const parts = p.previsao.split("-"); // YYYY-MM-DD

@@ -124,11 +124,14 @@ service cloud.firestore {
         && changed().hasOnly(['qtd']) && validQty(request.resource.data);
     }
 
-    // Novo plantio começa no campo e sem colheita.
+    // Novo plantio começa no campo e sem colheita. Perene que já está
+    // produzindo (banana, chuchu…) pode entrar direto em colheita.
     function launcherCreatesPlanting() {
       return isLauncher() && stampedNow()
-        && request.resource.data.status == 'No campo'
-        && request.resource.data.totalColhido == 0;
+        && request.resource.data.totalColhido == 0
+        && (request.resource.data.status == 'No campo'
+            || (request.resource.data.status == 'Colhendo'
+                && request.resource.data.get('tipo', '') == 'Perene'));
     }
 
     // Efeito de uma colheita no plantio: total colhido e início da colheita.

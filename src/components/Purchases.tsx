@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { CanEdit, launchStamp } from "../lib/permissions";
+import { plantiosDaCompra, colheitasDoPlantio, unidadeColheita, hojeLocal } from "../lib/producao";
+import { Harvest } from "../types";
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Purchase, Crop, Planting } from "../types";
@@ -18,6 +20,17 @@ interface NewPurchaseItem {
 
 export default function Purchases({ onNotify }: PurchasesProps) {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [plantingsAll, setPlantingsAll] = useState<Planting[]>([]);
+  const [harvestsAll, setHarvestsAll] = useState<Harvest[]>([]);
+
+  // Destino do lote: plantios que saíram dele e quanto já foi colhido.
+  const usoDoLote = (lote: Purchase): string => {
+    const plantios = plantiosDaCompra(plantingsAll, lote);
+    if (plantios.length === 0) return "";
+    const colhido = plantios.reduce((soma, pl) => soma + colheitasDoPlantio(harvestsAll, pl).reduce((a, h) => a + (Number(h.qtd) || 0), 0), 0);
+    const un = unidadeColheita(crops, lote.cultura);
+    return `🌱 ${plantios.length} plantio${plantios.length > 1 ? "s" : ""}: ${plantios.map(pl => pl.id).join(", ")} · ${Number(colhido.toFixed(2)).toLocaleString("pt-BR")} ${un} colhidos`;
+  };
   const [crops, setCrops] = useState<Crop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
@@ -26,7 +39,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
   // Form states
-  const [compraData, setCompraData] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [compraData, setCompraData] = useState<string>(hojeLocal());
   const [compraFornecedor, setCompraFornecedor] = useState<string>("");
   const [compraNf, setCompraNf] = useState<string>("");
   const [itens, setItens] = useState<NewPurchaseItem[]>([{ tipo: "Muda", cultura: "", quantidade: 0 }]);
@@ -76,6 +89,17 @@ export default function Purchases({ onNotify }: PurchasesProps) {
       // Sort newest purchases first
       list.sort((a, b) => parseDateToTimestamp(b.data) - parseDateToTimestamp(a.data));
       setPurchases(list);
+
+      // 3. Plantios e colheitas, para mostrar o destino de cada lote
+      const [plantingsSnap, harvestsSnap] = await Promise.all([
+        getDocs(collection(db, "plantings")),
+        getDocs(collection(db, "harvests"))
+      ]);
+      setPlantingsAll(plantingsSnap.docs.map(d => {
+        const data = d.data();
+        return { ...data, docId: d.id, id: data.id || d.id } as Planting;
+      }));
+      setHarvestsAll(harvestsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Harvest)));
     } catch (err) {
       console.error("Error fetching inventory data:", err);
       onNotify("Erro ao buscar dados do estoque.", "error");
@@ -160,7 +184,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
 
   const handleOpenEditPurchase = (p: Purchase) => {
     setEditingPurchase(p);
-    setEditData(p.data || new Date().toISOString().split("T")[0]);
+    setEditData(p.data || hojeLocal());
     setEditFornecedor(p.fornecedor || "");
     setEditNf(p.nf || "");
     setEditTipo(isSemente(p.tipo) ? "Semente" : "Muda");
@@ -215,7 +239,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   };
 
   const openForm = () => {
-    setCompraData(new Date().toISOString().split("T")[0]);
+    setCompraData(hojeLocal());
     setCompraFornecedor("");
     setCompraNf("");
     setItens([{ tipo: "Muda", cultura: "", quantidade: 0 }]);
@@ -496,6 +520,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                             <tr key={p.id} className="hover:bg-slate-50/50 transition">
                               <td className="p-4">
                                 <span className="text-[10px] font-mono block text-slate-400 font-bold">{p.id}</span>
+                                {usoDoLote(p) && <span className="text-[10px] block text-emerald-700 font-semibold mt-0.5">{usoDoLote(p)}</span>}
                                 <span className="text-xs text-slate-500 font-medium">{formatToBrazDate(p.data)}</span>
                               </td>
                               <td className="p-4 font-bold text-slate-800">{p.cultura}</td>
@@ -563,6 +588,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                             <tr key={p.id} className="hover:bg-slate-50/50 transition">
                               <td className="p-4">
                                 <span className="text-[10px] font-mono block text-slate-400 font-bold">{p.id}</span>
+                                {usoDoLote(p) && <span className="text-[10px] block text-emerald-700 font-semibold mt-0.5">{usoDoLote(p)}</span>}
                                 <span className="text-xs text-slate-500 font-medium">{formatToBrazDate(p.data)}</span>
                               </td>
                               <td className="p-4 font-bold text-slate-800">{p.cultura}</td>
@@ -641,7 +667,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                             ) : (
                               inactivePurchases.map((p) => (
                                 <tr key={p.id} className="hover:bg-slate-100/30 transition text-slate-500">
-                                  <td className="p-3 font-mono font-medium">{p.id}<br/>{formatToBrazDate(p.data)}</td>
+                                  <td className="p-3 font-mono font-medium">{p.id}<br/>{formatToBrazDate(p.data)}{usoDoLote(p) && <span className="block font-sans text-[10px] text-emerald-700 font-semibold mt-0.5">{usoDoLote(p)}</span>}</td>
                                   <td className="p-3 font-bold text-slate-700">{p.cultura}</td>
                                   <td className="p-3 font-medium">{p.tipo} - <span className="text-slate-500">{p.fornecedor}</span></td>
                                   <td className="p-3 text-xs">

@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { CanEdit, launchStamp } from "../lib/permissions";
+import { calcularHistorico,
+  statusCalculado, STATUS_INFO, hojeLocal, somarDias, buscarCultura, unidadeColheita,
+  colheitasDoPlantio
+} from "../lib/producao";
+import ProgressoColheita from "./ProgressoColheita";
 import { collection, getDocs, addDoc, updateDoc, doc, writeBatch, query, orderBy, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Purchase, Crop, Harvest } from "../types";
@@ -21,10 +26,16 @@ interface CanteiroItem {
   acaoSobra: "dividido" | "perda";
   motivoPerda: string;
   loteSaldoMax?: number;
+  /** Perene que já está produzindo: entra direto em colheita. */
+  jaProduzindo: boolean;
+  /** Estimativa de colheita (kg, maço…) quando não se conta por unidade. */
+  estimativa: number;
 }
 
 export default function Plantings({ onNotify }: PlantingsProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
+  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
+  const historico = useMemo(() => calcularHistorico(plantings), [plantings]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
@@ -52,18 +63,19 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   const [editObs, setEditObs] = useState<string>("");
   const [editData, setEditData] = useState<string>("");
   const [editPrevisao, setEditPrevisao] = useState<string>("");
+  const [editEstimativa, setEditEstimativa] = useState<number>(0);
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
   const [isFinalizeOpen, setIsFinalizeOpen] = useState<boolean>(false);
-  const [finData, setFinData] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [finData, setFinData] = useState<string>(hojeLocal());
   const [finPerdas, setFinPerdas] = useState<number>(0);
   const [finObs, setFinObs] = useState<string>("");
   const [savingFin, setSavingFin] = useState<boolean>(false);
 
   // Form states (new planting)
-  const [formDate, setFormDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [formDate, setFormDate] = useState<string>(hojeLocal());
   const [canteiros, setCanteiros] = useState<CanteiroItem[]>([
-    { tipo: "Muda", loteId: "", cultura: "", talhao: "", quantidade: 0, aduboQt: 0, aduboComp: "", acaoSobra: "dividido", motivoPerda: "" }
+    { tipo: "Muda", loteId: "", cultura: "", talhao: "", quantidade: 0, aduboQt: 0, aduboComp: "", acaoSobra: "dividido", motivoPerda: "", jaProduzindo: false, estimativa: 0 }
   ]);
   const [savingNew, setSavingNew] = useState<boolean>(false);
 
@@ -116,17 +128,22 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   };
 
   const getEstimatedDate = (cropName: string, plantingDateStr: string): string => {
-    const crop = crops.find(c => c.nome.toLowerCase() === cropName.toLowerCase());
-    if (!crop || !crop.dias) return "";
-    const pDate = new Date(plantingDateStr + "T03:00:00Z");
-    pDate.setDate(pDate.getDate() + crop.dias);
-    return pDate.toISOString().split("T")[0];
+    const crop = buscarCultura(crops, cropName);
+    if (!crop || !crop.dias) return plantingDateStr;
+    return somarDias(plantingDateStr, crop.dias);
+  };
+
+  // Estimativa só faz sentido quando a colheita não é contada por unidade plantada.
+  const precisaEstimativa = (c: CanteiroItem): boolean => {
+    if (!c.cultura) return false;
+    const un = unidadeColheita(crops, c.cultura).toLowerCase();
+    return c.tipo === "Semente" || !["un", "und", "unid", "unidade", "unidades"].includes(un);
   };
 
   const addCanteiroRow = () => {
     setCanteiros([
       ...canteiros,
-      { tipo: "Muda", loteId: "", cultura: "", talhao: "", quantidade: 0, aduboQt: 0, aduboComp: "", acaoSobra: "dividido", motivoPerda: "" }
+      { tipo: "Muda", loteId: "", cultura: "", talhao: "", quantidade: 0, aduboQt: 0, aduboComp: "", acaoSobra: "dividido", motivoPerda: "", jaProduzindo: false, estimativa: 0 }
     ]);
   };
 
@@ -174,17 +191,18 @@ export default function Plantings({ onNotify }: PlantingsProps) {
     setEditCultura(selectedPlanting.cultura);
     setEditTalhao(selectedPlanting.talhao);
     setEditQt(selectedPlanting.quantidade);
-    setEditStatus(selectedPlanting.status === "Finalizado" ? "No campo" : (selectedPlanting.status as any));
+    setEditStatus(selectedPlanting.status === "Colhendo" ? "Colhendo" : "No campo");
     setEditPerdas(selectedPlanting.perdas || 0);
     setEditObs(selectedPlanting.obs || "");
     setEditData(selectedPlanting.data || "");
     setEditPrevisao(selectedPlanting.previsao || "");
+    setEditEstimativa(selectedPlanting.estimativaColheita || 0);
     setIsEditOpen(true);
   };
 
   const handleOpenFinalize = (pId: string) => {
     setIsFinalizeOpen(true);
-    setFinData(new Date().toISOString().split("T")[0]);
+    setFinData(hojeLocal());
     setFinPerdas(0);
     setFinObs("");
   };
@@ -207,6 +225,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
         obs: editObs.trim(),
         data: editData,
         previsao: editPrevisao,
+        estimativaColheita: Number(editEstimativa) || 0,
       };
 
       await updateDoc(docRef, updatePayload);
@@ -257,8 +276,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
     // Validations
     for (let i = 0; i < canteiros.length; i++) {
       const c = canteiros[i];
-      if (c.tipo !== "Perene" && !c.loteId) {
-        onNotify(`Selecione o canteiro de estoque no Canteiro ${i + 1}.`, "error");
+      if (c.tipo === "Muda" && !c.loteId) {
+        onNotify(`Selecione o lote de mudas no Canteiro ${i + 1}.`, "error");
         return;
       }
       if (c.tipo === "Perene" && !c.cultura) {
@@ -271,6 +290,19 @@ export default function Plantings({ onNotify }: PlantingsProps) {
       }
       if (c.quantidade <= 0) {
         onNotify(`A quantidade plantada no Canteiro ${i + 1} deve ser maior que zero.`, "error");
+        return;
+      }
+    }
+
+    // Mudas: a soma dos canteiros não pode passar do saldo de cada lote.
+    const usoPorLote: Record<string, number> = {};
+    for (const c of canteiros) {
+      if (c.tipo === "Muda" && c.loteId) usoPorLote[c.loteId] = (usoPorLote[c.loteId] || 0) + Number(c.quantidade);
+    }
+    for (const [loteId, total] of Object.entries(usoPorLote)) {
+      const lote = purchases.find(p => p.id === loteId || p.docId === loteId);
+      if (lote && total > lote.saldo) {
+        onNotify(`O lote ${lote.id} tem ${lote.saldo} mudas, mas os canteiros somam ${total}.`, "error");
         return;
       }
     }
@@ -289,19 +321,21 @@ export default function Plantings({ onNotify }: PlantingsProps) {
         const newDocRef = doc(collection(db, "plantings"));
 
         // Generate dynamic estimated harvest date
-        const previsaoDate = getEstimatedDate(c.cultura, formDate);
+        const comecaColhendo = c.tipo === "Perene" && c.jaProduzindo;
+        const previsaoDate = comecaColhendo ? formDate : getEstimatedDate(c.cultura, formDate);
 
         const payload: Planting = {
           id: plantingId,
-          idLote: c.tipo !== "Perene" ? c.loteId : "",
+          idLote: c.tipo !== "Perene" ? c.loteId || "" : "",
           data: formDate,
           cultura: c.cultura,
           tipo: c.tipo,
           talhao: c.talhao.trim(),
           quantidade: Number(c.quantidade),
           previsao: previsaoDate,
-          status: "No campo",
+          status: comecaColhendo ? "Colhendo" : "No campo",
           totalColhido: 0,
+          ...(precisaEstimativa(c) && c.estimativa > 0 ? { estimativaColheita: Number(c.estimativa) } : {}),
           unidade: c.tipo === "Semente" ? "m²" : "Unidades",
           aduboQt: Number(c.aduboQt) || 0,
           aduboComp: c.aduboComp.trim() || "Nenhum",
@@ -378,33 +412,10 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   };
 
   // Planting delayed / wait classifications
-  const getCalculatedStatus = (p: Planting) => {
-    if (p.status === "Finalizado") return "Finalizado";
-    if (p.status === "Colhendo") return "Colhendo";
-    if (!p.previsao) return p.status;
-    
-    const todayStr = new Date().toISOString().split("T")[0];
-    const daysDiff = Math.floor((new Date(todayStr).getTime() - new Date(p.previsao).getTime()) / (1000 * 3600 * 24));
-    
-    if (p.status === "No campo") {
-      if (daysDiff >= 15) return "Colheita atrasada";
-      if (daysDiff >= 0) return "Esperando colheita";
-    }
-    return p.status;
-  };
+  const getCalculatedStatus = (p: Planting) => statusCalculado(p);
 
-  const getStatusLabelAndColor = (status: string) => {
-    switch (status) {
-      case "Colhendo":
-        return { label: "🍓 Em Colheita", color: "text-emerald-700 bg-emerald-100/60 border-emerald-100" };
-      case "Colheita atrasada":
-        return { label: "⚠️ Colheita Atrasada", color: "text-rose-700 bg-rose-100/60 border-rose-100" };
-      case "Esperando colheita":
-        return { label: "🕐 Esperando Colheita", color: "text-amber-700 bg-amber-100/60 border-amber-100" };
-      default:
-        return { label: "🌱 No Campo", color: "text-indigo-700 bg-indigo-100/60 border-indigo-100" };
-    }
-  };
+  const getStatusLabelAndColor = (status: string) =>
+    STATUS_INFO[status as keyof typeof STATUS_INFO] || STATUS_INFO["No campo"];
 
   // State for search and filters
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -450,7 +461,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   });
 
   // Groups order for display
-  const groupOrder = ["Colhendo", "Colheita atrasada", "Esperando colheita", "No campo"];
+  const groupOrder = ["Colhendo", "Colheita atrasada", "Pronto para colher", "No campo"];
 
   return (
     <div className="space-y-6">
@@ -851,7 +862,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                           {/* Lot / Crop dropdown */}
                           <div className="space-y-1.5 md:col-span-2">
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
-                              {c.tipo === "Perene" ? "Cultura Perene" : "Lote do Estoque Disponível"}
+                              {c.tipo === "Perene" ? "Cultura Perene" : c.tipo === "Semente" ? "Compra de Sementes (opcional)" : "Lote de Mudas"}
                             </label>
                             {c.tipo === "Perene" ? (
                               <select
@@ -869,18 +880,49 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                               </select>
                             ) : (
                               <select
-                                required
+                                required={c.tipo === "Muda"}
                                 value={c.loteId}
                                 onChange={(e) => updateCanteiroRow(idx, "loteId", e.target.value)}
                                 className="w-full px-3 py-2 bg-white border border-slate-200 text-xs text-slate-800 rounded-lg outline-none focus:border-emerald-500 font-semibold"
                               >
-                                <option value="" disabled>Selecione um lote disponível...</option>
+                                {c.tipo === "Muda" ? (
+                                  <option value="" disabled>Selecione o lote de mudas...</option>
+                                ) : (
+                                  <option value="">Sem vínculo com compra (opcional)</option>
+                                )}
                                 {activeLots.map((l) => (
                                   <option key={l.id} value={l.id}>
                                     [{l.cultura}] Saldo: {l.saldo} (Lote: {l.id} • NF: {l.nf})
                                   </option>
                                 ))}
                               </select>
+                            )}
+                            {c.tipo === "Semente" && !c.loteId && (
+                              <select
+                                required
+                                value={c.cultura}
+                                onChange={(e) => updateCanteiroRow(idx, "cultura", e.target.value)}
+                                className="w-full mt-2 px-3 py-2 bg-white border border-slate-200 text-xs text-slate-800 rounded-lg outline-none focus:border-emerald-500 font-semibold"
+                              >
+                                <option value="" disabled>Cultura semeada...</option>
+                                {crops.map((cr) => (
+                                  <option key={cr.nome} value={cr.nome}>{cr.nome}</option>
+                                ))}
+                              </select>
+                            )}
+                            {c.tipo === "Perene" && (
+                              <label className="flex items-start gap-2 mt-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={c.jaProduzindo}
+                                  onChange={(e) => updateCanteiroRow(idx, "jaProduzindo", e.target.checked)}
+                                  className="mt-0.5 accent-emerald-600"
+                                />
+                                <span>
+                                  Já está no campo e produzindo (banana, chuchu…)
+                                  <span className="block text-[10px] text-slate-400 font-medium">Entra direto em colheita. Use a data de plantio aproximada, se souber.</span>
+                                </span>
+                              </label>
                             )}
                           </div>
 
@@ -906,7 +948,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                           {/* Plated Quantity */}
                           <div className="space-y-1.5">
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
-                              {c.tipo === "Semente" ? "Área Plantada (m²)" : "Quantidade Plantada (unid)"}
+                              {c.tipo === "Semente" ? "Área Plantada (m²)" : c.tipo === "Perene" ? "Quantidade de Plantas (unid)" : "Quantidade de Mudas (unid)"}
                             </label>
                             <input
                               type="number"
@@ -929,6 +971,24 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                           </div>
 
                         </div>
+
+                        {precisaEstimativa(c) && (
+                          <div className="space-y-1.5 max-w-xs">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
+                              Estimativa de colheita ({unidadeColheita(crops, c.cultura)}) — opcional
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={c.estimativa || ""}
+                              onChange={(e) => updateCanteiroRow(idx, "estimativa", Math.max(0, parseFloat(e.target.value) || 0))}
+                              placeholder="Ex: 40"
+                              className="w-full px-3 py-2 bg-white border border-slate-200 text-xs text-slate-800 rounded-lg outline-none focus:border-emerald-500 font-mono font-bold"
+                            />
+                            <p className="text-[10px] text-slate-400">Pode deixar em branco: o sistema usa a média dos plantios já finalizados desta cultura. Passar da estimativa só gera um aviso.</p>
+                          </div>
+                        )}
 
                         {/* Leftover stock warning box */}
                         {showSobraBox && (
@@ -1085,8 +1145,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               {/* Harvest block */}
               <div className="bg-indigo-50/35 p-4 rounded-xl border border-indigo-200/30 space-y-3">
                 <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-widest">🍓 Produção Acumulada e Colheitas</h4>
-                <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Total Colhido:</span> {selectedPlanting.totalColhido} {getCropHarvestUnit(selectedPlanting.cultura, selectedPlanting.unidade)}</p>
-                <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Status atual:</span> <span className="font-bold text-indigo-700">{selectedPlanting.status}</span></p>
+                <ProgressoColheita plantio={selectedPlanting} crops={crops} historico={historico} />
+                <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Status atual:</span> <span className="font-bold text-indigo-700">{getStatusLabelAndColor(getCalculatedStatus(selectedPlanting)).label}</span></p>
                 {selectedPlanting.status === "Finalizado" && (
                   <>
                     <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Finalizado em:</span> {formatToBrazDate(selectedPlanting.dataFim || "")}</p>
@@ -1098,23 +1158,22 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                 {/* IDs das Colheitas */}
                 <div className="pt-2 border-t border-indigo-200/50 space-y-1.5">
                   <span className="text-xs font-bold text-indigo-900 block uppercase tracking-wider">
-                    IDs das Colheitas ({harvests.filter(h => h.idPlantio === selectedPlanting.id).length}):
+                    Colheitas deste plantio ({colheitasDoPlantio(harvests, selectedPlanting).length}):
                   </span>
-                  {harvests.filter(h => h.idPlantio === selectedPlanting.id).length === 0 ? (
+                  {colheitasDoPlantio(harvests, selectedPlanting).length === 0 ? (
                     <p className="text-xs text-slate-500 italic bg-white/60 p-2 rounded border border-slate-200/60">
                       Nenhuma colheita registrada para este plantio.
                     </p>
                   ) : (
                     <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                      {harvests
-                        .filter(h => h.idPlantio === selectedPlanting.id)
+                      {colheitasDoPlantio(harvests, selectedPlanting)
                         .map((h, idx) => (
                           <div key={h.id || idx} className="text-xs font-mono bg-white p-2.5 rounded-lg border border-indigo-100 flex justify-between items-center text-slate-700 shadow-xs">
                             <div>
-                              <span className="font-bold text-indigo-700 block">{h.id || h.idSessao || `COL-${idx}`}</span>
+                              <span className="font-bold text-indigo-700 block">{h.idSessao || h.id}</span>
                               <span className="text-[10px] text-slate-500 block font-sans">{formatToBrazDate(h.data)}</span>
                             </div>
-                            <span className="font-bold text-emerald-600 font-mono text-sm">{h.qtd} {selectedPlanting.unidade}</span>
+                            <span className="font-bold text-emerald-600 font-mono text-sm">{h.qtd} {h.unidade || getCropHarvestUnit(selectedPlanting.cultura)}</span>
                           </div>
                         ))}
                     </div>
@@ -1225,9 +1284,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                     onChange={(e: any) => setEditStatus(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 focus:border-indigo-500 rounded-lg text-xs font-bold"
                   >
-                    <option value="No campo">No campo</option>
-                    <option value="Esperando colheita">Esperando colheita</option>
-                    <option value="Colhendo">Colhendo</option>
+                    <option value="No campo">No campo (pronto/atrasado é calculado pela previsão)</option>
+                    <option value="Colhendo">Em colheita</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -1239,6 +1297,20 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                     className="w-full px-3 py-2 border border-slate-200 focus:border-indigo-500 rounded-lg text-sm font-mono font-bold"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Estimativa de colheita ({unidadeColheita(crops, editCultura)}) — para kg, maço etc.
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={editEstimativa || ""}
+                  onChange={(e) => setEditEstimativa(Math.max(0, parseFloat(e.target.value) || 0))}
+                  className="w-full px-3 py-2 border border-slate-200 focus:border-indigo-500 rounded-lg text-sm font-mono font-bold"
+                />
               </div>
 
               <div className="space-y-1">

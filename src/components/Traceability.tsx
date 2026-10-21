@@ -5,6 +5,7 @@ import { Planting, Purchase, Harvest, Crop } from "../types";
 import { Search, Loader2, Award, Printer, MapPin, Calendar, HelpCircle, FileText, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import GeraniumLogo from "./GeraniumLogo";
+import { compraDoPlantio, colheitasDoPlantio, statusCalculado, STATUS_INFO } from "../lib/producao";
 
 interface TraceabilityProps {
   onNotify: (msg: string, type: "success" | "error" | "info") => void;
@@ -29,10 +30,16 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
     try {
       setLoading(true);
       const plantingsSnapshot = await getDocs(collection(db, "plantings"));
-      setPlantings(plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting)));
+      setPlantings(plantingsSnapshot.docs.map(d => {
+        const data = d.data();
+        return { ...data, docId: d.id, id: data.id || d.id } as Planting;
+      }));
 
       const purchasesSnapshot = await getDocs(collection(db, "purchases"));
-      setPurchases(purchasesSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Purchase)));
+      setPurchases(purchasesSnapshot.docs.map(d => {
+        const data = d.data();
+        return { ...data, docId: d.id, id: data.id || d.id } as Purchase;
+      }));
 
       const harvestsSnapshot = await getDocs(collection(db, "harvests"));
       setHarvests(harvestsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Harvest)));
@@ -53,58 +60,12 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
     return found?.unidadeColheita || fallback || "kg";
   };
 
-  const normalizeCompare = (s1: string, s2: string): boolean => {
-    if (!s1 || !s2) return false;
-    const clean = (s: string) => s.toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove accents
-      .replace(/[^a-z0-9]/g, ""); // remove non-alphanumeric
-    return clean(s1) === clean(s2);
-  };
 
-  const getAssociatedPurchase = (p: Planting): Purchase | null => {
-    const pIdLoteClean = p.idLote?.trim().toUpperCase();
-    if (pIdLoteClean) {
-      const match = purchases.find(pur => pur.id.trim().toUpperCase() === pIdLoteClean);
-      if (match) return match;
-    }
 
-    // Fallback 1: check if the planting's own ID matches a purchase ID (sometimes they use the same ID across the chain)
-    const pIdClean = p.id.trim().toUpperCase();
-    const exactIdMatch = purchases.find(pur => pur.id.trim().toUpperCase() === pIdClean);
-    if (exactIdMatch) return exactIdMatch;
+  // Só a compra realmente vinculada ao plantio. Sem vínculo, a ficha diz isso.
+  const getAssociatedPurchase = (p: Planting): Purchase | null => compraDoPlantio(purchases, p);
 
-    // Fallback 2: fuzzy match by same culture and type purchased on or before planting date
-    const candidates = purchases.filter(pur => {
-      const sameCulture = normalizeCompare(pur.cultura, p.cultura);
-      const isCorrectType = pur.tipo === p.tipo || 
-                            (pur.tipo?.toLowerCase() === "muda" && p.tipo?.toLowerCase() === "muda") ||
-                            (pur.tipo?.toLowerCase() === "semente" && p.tipo?.toLowerCase() === "semente");
-      return sameCulture && isCorrectType && pur.data <= p.data;
-    });
-
-    if (candidates.length === 0) {
-      // Fallback 3: match by culture name only (if type mismatch is minor)
-      const cultureOnlyCandidates = purchases.filter(pur => 
-        normalizeCompare(pur.cultura, p.cultura) && pur.data <= p.data
-      );
-      if (cultureOnlyCandidates.length > 0) {
-        cultureOnlyCandidates.sort((a, b) => b.data.localeCompare(a.data));
-        return cultureOnlyCandidates[0];
-      }
-      return null;
-    }
-
-    // Sort by proximity to planting date (newest first)
-    candidates.sort((a, b) => b.data.localeCompare(a.data));
-    return candidates[0];
-  };
-
-  const getAssociatedHarvests = (p: Planting): Harvest[] => {
-    return harvests
-      .filter(h => h.idPlantio === p.id)
-      .sort((a, b) => b.data.localeCompare(a.data));
-  };
+  const getAssociatedHarvests = (p: Planting): Harvest[] => colheitasDoPlantio(harvests, p);
 
   const formatToBrazDate = (dateStr: string | undefined | null) => {
     if (!dateStr) return "N/A";
@@ -119,11 +80,20 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
     window.print();
   };
 
+  // Busca por plantio, cultura, talhão, lote de compra, nota fiscal, fornecedor
+  // ou ID de sessão/lançamento de colheita.
   const filteredPlantings = plantings.filter(p => {
-    const matchesSearch = p.cultura.toLowerCase().includes(search.toLowerCase()) || 
-                          p.id.toLowerCase().includes(search.toLowerCase()) ||
-                          p.talhao.toLowerCase().includes(search.toLowerCase());
-    
+    const termo = search.trim().toLowerCase();
+    let matchesSearch = !termo;
+    if (termo) {
+      const compra = getAssociatedPurchase(p);
+      const campos = [
+        p.cultura, p.id, p.docId, p.talhao, p.idLote,
+        compra?.id, compra?.nf, compra?.fornecedor,
+        ...getAssociatedHarvests(p).flatMap(h => [h.idSessao, h.id])
+      ];
+      matchesSearch = campos.some(c => (c || "").toString().toLowerCase().includes(termo));
+    }
     if (filterStatus === "ativos") {
       return matchesSearch && p.status !== "Finalizado";
     }
@@ -155,7 +125,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4 lg:col-span-1">
             <div className="space-y-1">
               <h2 className="text-sm font-bold text-slate-700">Selecione o Plantio</h2>
-              <p className="text-xs text-slate-400 font-medium">Pesquise por ID, cultura ou talhão</p>
+              <p className="text-xs text-slate-400 font-medium">Pesquise por plantio, cultura, talhão, lote, nota fiscal ou sessão de colheita</p>
             </div>
 
             <div className="relative">
@@ -207,7 +177,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                       <span className="text-slate-400">{p.id}</span>
                       <span className={`px-1.5 py-0.5 rounded-full font-sans text-[8px] font-black uppercase tracking-widest ${
                         p.status === "Finalizado" ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-800"
-                      }`}>{p.status}</span>
+                      }`}>{STATUS_INFO[statusCalculado(p)].label}</span>
                     </div>
                     <h3 className="font-bold text-slate-800 text-xs mt-1">{p.cultura}</h3>
                     <p className="text-[10px] text-slate-400 mt-0.5 font-bold">Talhão: {p.talhao} • {formatToBrazDate(p.data)}</p>
@@ -298,7 +268,11 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400 italic font-medium">Plantio perene ou de semente própria sem registro de compra vinculado.</p>
+                      <p className="text-xs text-amber-700 font-bold">
+                        {selectedPlanting.idLote
+                          ? `Lote ${selectedPlanting.idLote} informado, mas não encontrado nas compras.`
+                          : "Sem lote de compra vinculado."}
+                      </p>
                     )}
                   </div>
 
@@ -331,7 +305,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                       </div>
                       <div className="space-y-0.5">
                         <span className="text-slate-400 font-bold uppercase text-[9px]">Status Atual Campo</span>
-                        <p className="font-extrabold text-indigo-700">{selectedPlanting.status}</p>
+                        <p className="font-extrabold text-indigo-700">{STATUS_INFO[statusCalculado(selectedPlanting)].label}</p>
                       </div>
                       <div className="space-y-0.5">
                         <span className="text-slate-400 font-bold uppercase text-[9px]">Previsão Estimada / Fim</span>
@@ -367,7 +341,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                               <tr key={index} className="hover:bg-slate-50/20">
                                 <td className="p-2.5 text-slate-700 font-sans">{formatToBrazDate(h.data)}</td>
                                 <td className="p-2.5 text-slate-400">{h.idSessao}</td>
-                                <td className="p-2.5 text-right text-emerald-600">{h.qtd}</td>
+                                <td className="p-2.5 text-right text-emerald-600">{h.qtd} {h.unidade || getCropHarvestUnit(h.cultura)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -450,7 +424,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                 </div>
               </div>
             ) : (
-              <p className="text-xs italic text-gray-500">Plantio perene ou de semente própria sem registro de compra.</p>
+              <p className="text-xs font-bold">{selectedPlanting.idLote ? `Lote ${selectedPlanting.idLote} informado, mas não encontrado nas compras.` : "Sem lote de compra vinculado."}</p>
             )}
           </div>
 
@@ -481,7 +455,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
               </div>
               <div>
                 <span className="text-gray-500 uppercase text-[8px] block">Status</span>
-                <p className="font-bold">{selectedPlanting.status}</p>
+                <p className="font-bold">{STATUS_INFO[statusCalculado(selectedPlanting)].label}</p>
               </div>
               <div>
                 <span className="text-gray-500 uppercase text-[8px] block">Previsão / Fim</span>
@@ -508,7 +482,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                     <tr key={idx}>
                       <td className="p-2 text-black font-sans">{formatToBrazDate(h.data)}</td>
                       <td className="p-2 text-gray-600">{h.idSessao}</td>
-                      <td className="p-2 text-right font-bold">{h.qtd}</td>
+                      <td className="p-2 text-right font-bold">{h.qtd} {h.unidade || getCropHarvestUnit(h.cultura)}</td>
                     </tr>
                   ))}
                 </tbody>

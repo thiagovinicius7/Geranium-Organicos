@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { hojeLocal } from "../lib/producao";
 import { collection, doc, writeBatch, setDoc, getDocs } from "firebase/firestore";
 import { db, initAuth, googleSignIn, logout, writeDocumentRest, getAccessToken } from "../lib/firebase";
 import { uploadJsonToDrive } from "../lib/googleDrive";
@@ -169,7 +170,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
       const blob = new Blob([jsonString], { type: "application/json;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = hojeLocal();
       const timeStr = new Date().toTimeString().slice(0, 5).replace(":", "");
       link.setAttribute("href", url);
       link.setAttribute("download", `backup_sistema_geranium_${dateStr}_${timeStr}.json`);
@@ -207,7 +208,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
         return;
       }
 
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = hojeLocal();
       const timeStr = new Date().toTimeString().slice(0, 5).replace(":", "");
       const fileName = `backup_sistema_geranium_${dateStr}_${timeStr}.json`;
 
@@ -895,7 +896,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
     } else if (activeType === "purchases") {
       // Data
       const parsedDate = parseDateToISO(record.data);
-      record.data = parsedDate || new Date().toISOString().split("T")[0];
+      record.data = parsedDate || hojeLocal();
       // Fornecedor
       record.fornecedor = record.fornecedor ? record.fornecedor.trim() : "Não informado";
       // NF
@@ -942,7 +943,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
     } else if (activeType === "plantings") {
       // Data
       const parsedDate = parseDateToISO(record.data);
-      record.data = parsedDate || new Date().toISOString().split("T")[0];
+      record.data = parsedDate || hojeLocal();
       // Cultura
       record.cultura = record.cultura ? record.cultura.trim() : "Não informada";
       // Tipo
@@ -1039,7 +1040,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
     } else if (activeType === "harvests") {
       // Data
       const parsedDate = parseDateToISO(record.data);
-      record.data = parsedDate || new Date().toISOString().split("T")[0];
+      record.data = parsedDate || hojeLocal();
       // idPlantio
       record.idPlantio = record.idplantio ? record.idplantio.trim().toUpperCase() : "SEM-ID";
       // Cultura

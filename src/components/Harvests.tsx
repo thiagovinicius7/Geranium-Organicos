@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
+import {
+  statusCalculado, grupoColheita, GRUPOS_COLHEITA, hojeLocal, novoIdSessao, encontrarPlantio,
+  colheitasDoPlantio, verificarLimite, lancarColheitas, ajustarColheita, excluirColheitas,
+  iniciarColheita, mudarIdColheita, ItemColheita, formatarData
+} from "../lib/producao";
+import ProgressoColheita from "./ProgressoColheita";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
 import { db, deleteDocumentRest, writeDocumentRest } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
@@ -18,7 +24,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
   const [viewMode, setViewMode] = useState<"daily" | "history">("daily");
 
   // Daily Harvest panel states
-  const [activeDate, setActiveDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [activeDate, setActiveDate] = useState<string>(hojeLocal());
   const [modoColheitaAtivo, setModoColheitaAtivo] = useState<boolean>(false);
   const [sessaoColheitaAtual, setSessaoColheitaAtual] = useState<string>("");
   
@@ -106,22 +112,10 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     return found?.unidadeColheita || fallback || "kg";
   };
 
-  const getCalculatedStatus = (p: Planting) => {
-    if (p.status === "Finalizado") return "Finalizado";
-    if (p.status === "Colhendo") return "Colhendo";
-    if (!p.previsao) return p.status;
-    
-    const todayStr = new Date().toISOString().split("T")[0];
-    const daysDiff = Math.floor((new Date(todayStr).getTime() - new Date(p.previsao).getTime()) / (1000 * 3600 * 24));
-    
-    if (p.status === "No campo") {
-      if (daysDiff >= 15) return "Colheita atrasada";
-      if (daysDiff >= 0) return "Esperando colheita";
-    }
-    return p.status;
-  };
+  const getCalculatedStatus = (p: Planting) => statusCalculado(p);
 
   const [showNoCampo, setShowNoCampo] = useState<boolean>(false);
+  const [atrasadosAbertos, setAtrasadosAbertos] = useState<boolean>(false);
 
   // Groupings for daily list:
   // 0: Talhões Numéricos (Colhendo)
@@ -129,19 +123,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
   // 2: Colheita atrasada
   // 3: Esperando colheita
   // 4: No campo (se ativado)
-  const getGroupCategory = (p: Planting): number => {
-    const calcStatus = getCalculatedStatus(p);
-    if (calcStatus === "Colheita atrasada") return 2;
-    if (calcStatus === "Esperando colheita") return 3;
-    if (calcStatus === "No campo") return 4;
-    
-    // Check if user manually marked to display in Sítio group
-    if (p.displayInSitio) return 1;
-
-    // Check if plot / talhao is numeric
-    const isNumeric = !isNaN(Number(p.talhao)) && p.talhao.trim() !== "";
-    return isNumeric ? 0 : 1;
-  };
+  const getGroupCategory = (p: Planting): number => grupoColheita(p);
 
   const handleToggleDisplayInSitio = async (planting: Planting) => {
     const targetDocId = planting.docId || planting.id;
@@ -165,24 +147,17 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     }
   };
 
-  const categories = [
-    { id: 0, label: "🔢 Talhões Numéricos — Em Colheita", color: "text-emerald-700 bg-emerald-100/60 border-emerald-100" },
-    { id: 1, label: "🌿 Sítio — Em Colheita", color: "text-teal-700 bg-teal-100/60 border-teal-100" },
-    { id: 2, label: "⚠️ Colheita Atrasada", color: "text-rose-700 bg-rose-100/60 border-rose-100" },
-    { id: 3, label: "🕐 Esperando Colheita", color: "text-amber-700 bg-amber-100/60 border-amber-100" },
-    { id: 4, label: "🌱 No Campo — Plantios em Desenvolvimento", color: "text-sky-700 bg-sky-100/60 border-sky-100" }
-  ];
+  const categories = GRUPOS_COLHEITA;
 
   const handleIniciarColheitaManual = async (pId: string) => {
+    const p = encontrarPlantio(plantings, pId);
+    if (!p) return;
     try {
-      const pDoc = plantings.find(p => p.id === pId || p.docId === pId);
-      const targetDocId = pDoc?.docId || pDoc?.id || pId;
-      const docRef = doc(db, "plantings", targetDocId);
-      await updateDoc(docRef, { status: "Colhendo" });
+      await iniciarColheita(p);
       onNotify("Colheita iniciada para o canteiro!", "success");
-      fetchData();
+      fetchData(false);
     } catch (err) {
-      console.error("Error setting canteiro to colhendo:", err);
+      console.error("Error starting harvest:", err);
       onNotify("Erro ao iniciar colheita.", "error");
     }
   };
@@ -190,12 +165,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
   const handleToggleHistoryLogs = (pId: string, cult: string) => {
     setSelectedPlantingId(pId);
     setSelectedPlantingCultura(cult);
-    
-    const logs = harvests
-      .filter(h => h.idPlantio === pId)
-      .sort((a, b) => b.data.localeCompare(a.data));
-    
-    setHistoricLogs(logs);
+    const p = encontrarPlantio(plantings, pId);
+    setHistoricLogs(p ? colheitasDoPlantio(harvests, p) : harvests.filter(h => h.idPlantio === pId));
     setIsHistoryLogsOpen(true);
   };
 
@@ -209,181 +180,70 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmMudarID = async () => {
     if (!selectedPlantingId) return;
+    const atual = encontrarPlantio(plantings, selectedPlantingId);
+    if (!atual) return;
+    const proximo = mudarIDTargetPlanting ? encontrarPlantio(plantings, mudarIDTargetPlanting) || null : null;
     try {
-      const batch = writeBatch(db);
-      
-      // 1. Finalize current planting
-      const currentDoc = plantings.find(p => p.id === selectedPlantingId || p.docId === selectedPlantingId);
-      const currentDocId = currentDoc?.docId || currentDoc?.id || selectedPlantingId;
-      const currentRef = doc(db, "plantings", currentDocId);
-      batch.update(currentRef, {
-        status: "Finalizado",
-        dataFim: activeDate,
-        perdas: 0,
-        obs: "Finalizado via troca de ID"
-      });
-
-      // 2. Start harvest on selected new canteiro if one is chosen
-      if (mudarIDTargetPlanting) {
-        const nextDoc = plantings.find(p => p.id === mudarIDTargetPlanting || p.docId === mudarIDTargetPlanting);
-        const nextDocId = nextDoc?.docId || nextDoc?.id || mudarIDTargetPlanting;
-        const nextRef = doc(db, "plantings", nextDocId);
-        batch.update(nextRef, {
-          status: "Colhendo"
-        });
-      }
-
-      await batch.commit();
-      onNotify("ID transferido com sucesso!", "success");
+      await mudarIdColheita(atual, proximo, hojeLocal());
+      onNotify(
+        proximo
+          ? `Colheita de ${atual.id} encerrada. ${proximo.id} agora está em colheita.`
+          : `Colheita de ${atual.id} encerrada.`,
+        "success"
+      );
       setIsMudarIDOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (err) {
       console.error("Error swapping planting IDs:", err);
-      onNotify("Erro ao transferir ID.", "error");
+      onNotify("Erro ao trocar o ID da colheita.", "error");
     }
   };
 
   const startNewHarvestSession = (): string => {
-    const dateForId = activeDate.replace(/-/g, "").substring(2);
-    const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const newSessaoId = `COL-${dateForId}-${randomHex}`;
+    const newSessaoId = novoIdSessao(activeDate);
     setSessaoColheitaAtual(newSessaoId);
     setModoColheitaAtivo(true);
     setValoresSessao({});
     return newSessaoId;
   };
 
-  const handleAutoSaveQtd = (pId: string, value: string, cult: string, th: string) => {
-    setValoresSessao(prev => ({ ...prev, [pId]: value }));
-
-    if (debounceTimers.current[pId]) {
-      clearTimeout(debounceTimers.current[pId]);
+  // Mudas/unidades: bloqueia se passar do plantado. Kg, maço etc.: avisa.
+  const confirmarLimites = (itens: ItemColheita[]): boolean => {
+    const avisos: string[] = [];
+    for (const { plantio, qtd } of itens) {
+      const r = verificarLimite(plantio, crops, qtd);
+      if (r.tipo === "bloqueado") {
+        onNotify(r.mensagem, "error");
+        return false;
+      }
+      if (r.tipo === "aviso") avisos.push(r.mensagem);
     }
-
-    const numericVal = parseFloat(value);
-    if (!numericVal || numericVal <= 0) return;
-
-    // Set input status to saving
-    setInputFeedback(prev => ({ ...prev, [pId]: "saving" }));
-
-    debounceTimers.current[pId] = setTimeout(async () => {
-      let currentSession = sessaoColheitaAtual;
-      if (!currentSession) {
-        currentSession = startNewHarvestSession();
-      }
-
-      try {
-        const batch = writeBatch(db);
-        
-        // Check if there is an existing log for this planting in the current session to update, or create a new one
-        const existingLog = harvests.find(h => h.idSessao === currentSession && h.idPlantio === pId);
-        let diff = numericVal;
-
-        if (existingLog && existingLog.id) {
-          const logRef = doc(db, "harvests", existingLog.id);
-          batch.update(logRef, { qtd: numericVal });
-          diff = numericVal - existingLog.qtd;
-        } else {
-          const newLogRef = doc(collection(db, "harvests"));
-          const payload: Harvest = {
-            idSessao: currentSession,
-            idPlantio: pId,
-            data: activeDate,
-            cultura: cult,
-            talhao: th,
-            qtd: numericVal,
-            ...launchStamp()
-          };
-          batch.set(newLogRef, payload);
-        }
-
-        // Update corresponding planting's running total colhido
-        const plantingDoc = plantings.find(p => p.id === pId || p.docId === pId);
-        if (plantingDoc) {
-          const targetDocId = plantingDoc.docId || plantingDoc.id;
-          if (targetDocId) {
-            const plantingRef = doc(db, "plantings", targetDocId);
-            const currentTotal = plantingDoc.totalColhido || 0;
-            batch.update(plantingRef, {
-              totalColhido: currentTotal + diff,
-              status: "Colhendo"
-            });
-          }
-        }
-
-        await batch.commit();
-        
-        setInputFeedback(prev => ({ ...prev, [pId]: "saved" }));
-        onNotify("Colheita salva!", "success");
-        fetchData();
-        
-        setTimeout(() => {
-          setInputFeedback(prev => ({ ...prev, [pId]: "idle" }));
-        }, 3000);
-
-      } catch (err) {
-        console.error("Error in auto-saving harvest qty:", err);
-        setInputFeedback(prev => ({ ...prev, [pId]: "idle" }));
-        onNotify("Erro ao registrar quantidade.", "error");
-      }
-    }, 1000);
+    if (avisos.length > 0) {
+      return window.confirm(`${avisos.join("\n")}\n\nGravar mesmo assim?`);
+    }
+    return true;
   };
 
+
+
   const handleSaveBulkMassa = async () => {
-    let currentSession = sessaoColheitaAtual;
-    if (!currentSession) {
-      currentSession = startNewHarvestSession();
+    const itens = Object.entries(valoresSessao)
+      .map(([pId, v]) => ({ plantio: encontrarPlantio(plantings, pId), qtd: parseFloat(v as string) }))
+      .filter((i): i is ItemColheita => !!i.plantio && i.qtd > 0);
+    if (itens.length === 0) {
+      onNotify("Nenhuma quantidade preenchida para gravar.", "info");
+      return;
     }
-
+    if (!confirmarLimites(itens)) return;
+    const sessao = sessaoColheitaAtual || startNewHarvestSession();
     try {
-      const batch = writeBatch(db);
-      let itemsAdded = 0;
-
-      for (const [pId, valStr] of Object.entries(valoresSessao)) {
-        const numericVal = parseFloat(valStr as string);
-        if (!numericVal || numericVal <= 0) continue;
-
-        const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
-        if (!p) continue;
-
-        // Create log document
-        const newLogRef = doc(collection(db, "harvests"));
-        const payload: Harvest = {
-          idSessao: currentSession,
-          idPlantio: pId,
-          data: activeDate,
-          cultura: p.cultura,
-          talhao: p.talhao,
-          qtd: numericVal,
-          ...launchStamp()
-        };
-        batch.set(newLogRef, payload);
-
-        // Update planting total
-        const targetDocId = p.docId || p.id;
-        if (targetDocId) {
-          const plantingRef = doc(db, "plantings", targetDocId);
-          const currentTotal = p.totalColhido || 0;
-          batch.update(plantingRef, {
-            totalColhido: currentTotal + numericVal,
-            status: "Colhendo"
-          });
-        }
-        itemsAdded++;
-      }
-
-      if (itemsAdded === 0) {
-        onNotify("Nenhuma quantidade válida preenchida.", "info");
-        return;
-      }
-
-      await batch.commit();
-      onNotify(`Sessão de colheita gravada com sucesso! (${itemsAdded} lançamentos)`, "success");
+      const n = await lancarColheitas(itens, crops, sessao, activeDate);
+      onNotify(`Colheita gravada com sucesso! (${n} lançamentos)`, "success");
       setValoresSessao({});
       fetchData(false);
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
-      onNotify("Erro ao gravar colheita em lote.", "error");
+      onNotify("Erro ao gravar colheita. Nada foi gravado.", "error");
     }
   };
 
@@ -422,61 +282,24 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleSaveEditLog = async () => {
     if (!logToEdit || !logToEdit.id) return;
-    
-    const diff = editLogQtd - logToEdit.qtd;
-    const targetLogId = logToEdit.id;
-    const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio);
-    const targetDocId = plantingDoc ? (plantingDoc.docId || plantingDoc.id) : null;
-    const newQty = editLogQtd;
-
+    const novaQtd = Number(editLogQtd) || 0;
+    if (novaQtd <= 0) {
+      onNotify("Informe uma quantidade maior que zero. Para remover, use excluir.", "error");
+      return;
+    }
+    const plantio = encontrarPlantio(plantings, logToEdit.idPlantio);
+    if (plantio && !confirmarLimites([{ plantio, qtd: novaQtd - (Number(logToEdit.qtd) || 0) }])) return;
     try {
       setSavingEditLog(true);
-
-      const batch = writeBatch(db);
-      batch.update(doc(db, "harvests", targetLogId), { qtd: newQty });
-
-      if (targetDocId && plantingDoc) {
-        const currentTotal = plantingDoc.totalColhido || 0;
-        const newTotal = Math.max(0, currentTotal + diff);
-        batch.update(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-      }
-
-      await batch.commit();
-
-      // Update state
-      setHarvests(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: newQty } : h));
-      setHistoricLogs(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: newQty } : h));
-      if (targetDocId && plantingDoc) {
-        setPlantings(prev => prev.map(p => {
-          if (p.docId === targetDocId || p.id === targetDocId) {
-            return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) + diff) };
-          }
-          return p;
-        }));
-      }
-
+      await ajustarColheita(logToEdit, novaQtd, plantings);
+      setHistoricLogs(prev => prev.map(h => h.id === logToEdit.id ? { ...h, qtd: novaQtd } : h));
       onNotify("Lançamento ajustado com sucesso!", "success");
       setIsEditLogOpen(false);
       setLogToEdit(null);
+      fetchData(false);
     } catch (err) {
       console.error("Error saving edit log:", err);
-      // Fallback direct updates
-      try {
-        await updateDoc(doc(db, "harvests", targetLogId), { qtd: newQty });
-        if (targetDocId && plantingDoc) {
-          const currentTotal = plantingDoc.totalColhido || 0;
-          const newTotal = Math.max(0, currentTotal + diff);
-          await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-        }
-        setHarvests(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: newQty } : h));
-        setHistoricLogs(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: newQty } : h));
-        onNotify("Lançamento ajustado com sucesso!", "success");
-        setIsEditLogOpen(false);
-        setLogToEdit(null);
-      } catch (fallbackErr) {
-        console.error("Fallback update failed:", fallbackErr);
-        onNotify("Erro ao salvar ajuste no banco de dados.", "error");
-      }
+      onNotify("Erro ao salvar o ajuste. Nada foi alterado.", "error");
     } finally {
       setSavingEditLog(false);
     }
@@ -489,59 +312,18 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmDeleteLog = async () => {
     if (!logToDelete || !logToDelete.id) return;
-
-    const log = logToDelete;
-    const deletedId = log.id!;
-    const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
-    const targetDocId = plantingDoc ? (plantingDoc.docId || plantingDoc.id) : null;
-
+    const deletedId = logToDelete.id;
     try {
       setDeletingLog(true);
-
-      const batch = writeBatch(db);
-      batch.delete(doc(db, "harvests", deletedId));
-
-      if (targetDocId && plantingDoc) {
-        const currentTotal = plantingDoc.totalColhido || 0;
-        const newTotal = Math.max(0, currentTotal - log.qtd);
-        batch.update(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-      }
-
-      await batch.commit();
-
-      // Update local state
-      setHarvests(prev => prev.filter(h => h.id !== deletedId));
+      await excluirColheitas([logToDelete], plantings);
       setHistoricLogs(prev => prev.filter(h => h.id !== deletedId));
-      if (targetDocId && plantingDoc) {
-        setPlantings(prev => prev.map(p => {
-          if (p.docId === targetDocId || p.id === targetDocId) {
-            return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - log.qtd) };
-          }
-          return p;
-        }));
-      }
-
       onNotify("Lançamento excluído com sucesso!", "success");
       setIsDeleteConfirmOpen(false);
       setLogToDelete(null);
+      fetchData(false);
     } catch (err) {
       console.error("Error deleting log:", err);
-      try {
-        await deleteDoc(doc(db, "harvests", deletedId));
-        if (targetDocId && plantingDoc) {
-          const currentTotal = plantingDoc.totalColhido || 0;
-          const newTotal = Math.max(0, currentTotal - log.qtd);
-          await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-        }
-        setHarvests(prev => prev.filter(h => h.id !== deletedId));
-        setHistoricLogs(prev => prev.filter(h => h.id !== deletedId));
-        onNotify("Lançamento excluído com sucesso!", "success");
-        setIsDeleteConfirmOpen(false);
-        setLogToDelete(null);
-      } catch (fallbackErr) {
-        console.error("Fallback delete failed:", fallbackErr);
-        onNotify("Erro ao excluir lançamento no banco de dados.", "error");
-      }
+      onNotify("Erro ao excluir o lançamento. Nada foi alterado.", "error");
     } finally {
       setDeletingLog(false);
     }
@@ -554,93 +336,17 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmDeleteSession = async () => {
     if (!sessionToDelete || sessionToDelete.logs.length === 0) return;
-
     const { idSessao, logs } = sessionToDelete;
-    const deletedIds = new Set(logs.map(l => l.id).filter(Boolean) as string[]);
-
-    // Calculate subtractions per planting
-    const plantingSubtractions: { [docId: string]: number } = {};
-    for (const log of logs) {
-      const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
-      if (plantingDoc) {
-        const targetDocId = plantingDoc.docId || plantingDoc.id;
-        if (targetDocId) {
-          plantingSubtractions[targetDocId] = (plantingSubtractions[targetDocId] || 0) + (log.qtd || 0);
-        }
-      }
-    }
-
     try {
       setDeletingSession(true);
-
-      const batch = writeBatch(db);
-      for (const log of logs) {
-        if (log.id) {
-          batch.delete(doc(db, "harvests", log.id));
-        }
-      }
-
-      for (const [targetDocId, subQty] of Object.entries(plantingSubtractions)) {
-        const plantingDoc = plantings.find(p => p.docId === targetDocId || p.id === targetDocId);
-        if (plantingDoc) {
-          const currentTotal = plantingDoc.totalColhido || 0;
-          const newTotal = Math.max(0, currentTotal - subQty);
-          batch.update(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-        }
-      }
-
-      await batch.commit();
-
-      // Update local state
-      setHarvests(prev => prev.filter(h => h.idSessao !== idSessao && (!h.id || !deletedIds.has(h.id))));
-      setPlantings(prev => prev.map(p => {
-        const targetDocId = p.docId || p.id;
-        if (targetDocId && plantingSubtractions[targetDocId]) {
-          const sub = plantingSubtractions[targetDocId];
-          return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - sub) };
-        }
-        return p;
-      }));
-
+      await excluirColheitas(logs, plantings);
       onNotify(`Sessão ${idSessao} excluída com sucesso!`, "success");
       setIsDeleteSessionConfirmOpen(false);
       setSessionToDelete(null);
+      fetchData(false);
     } catch (err) {
-      console.error("Error deleting session via batch, trying individual deletes:", err);
-      try {
-        const individualTasks: Promise<any>[] = [];
-        for (const log of logs) {
-          if (log.id) {
-            individualTasks.push(deleteDoc(doc(db, "harvests", log.id)));
-          }
-        }
-        for (const [targetDocId, subQty] of Object.entries(plantingSubtractions)) {
-          const plantingDoc = plantings.find(p => p.docId === targetDocId || p.id === targetDocId);
-          if (plantingDoc) {
-            const currentTotal = plantingDoc.totalColhido || 0;
-            const newTotal = Math.max(0, currentTotal - subQty);
-            individualTasks.push(updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal }));
-          }
-        }
-        await Promise.all(individualTasks);
-
-        setHarvests(prev => prev.filter(h => h.idSessao !== idSessao && (!h.id || !deletedIds.has(h.id))));
-        setPlantings(prev => prev.map(p => {
-          const targetDocId = p.docId || p.id;
-          if (targetDocId && plantingSubtractions[targetDocId]) {
-            const sub = plantingSubtractions[targetDocId];
-            return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - sub) };
-          }
-          return p;
-        }));
-
-        onNotify(`Sessão ${idSessao} excluída com sucesso!`, "success");
-        setIsDeleteSessionConfirmOpen(false);
-        setSessionToDelete(null);
-      } catch (fallbackErr) {
-        console.error("Individual deletes also failed:", fallbackErr);
-        onNotify("Erro ao excluir sessão no banco de dados.", "error");
-      }
+      console.error("Error deleting session:", err);
+      onNotify("Erro ao excluir a sessão. Nada foi alterado.", "error");
     } finally {
       setDeletingSession(false);
     }
@@ -655,7 +361,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     
     // If it is 'No campo' (not delayed, not waiting), only show if showNoCampo is enabled or user searched
     const calcStatus = getCalculatedStatus(p);
-    if (calcStatus === "No campo" && !showNoCampo && !searchTerm.trim()) {
+    if ((calcStatus === "No campo" || calcStatus === "Pronto para colher") && !showNoCampo && !searchTerm.trim()) {
       return false;
     }
     
@@ -811,7 +517,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                 }`}
               >
                 <span>🌱</span>
-                <span>{showNoCampo ? "Ocultar 'No Campo'" : "Ver Todos 'No Campo'"}</span>
+                <span>{showNoCampo ? "Ocultar prontos e no campo" : "Ver prontos para colher e no campo"}</span>
               </button>
             </div>
 
@@ -841,7 +547,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
               <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-slate-200 text-center p-6 shadow-sm">
                 <AlertCircle className="w-12 h-12 text-slate-300" />
                 <p className="text-sm font-semibold text-slate-700 mt-3">Nenhum plantio pronto para colheita.</p>
-                <p className="text-xs text-slate-400 mt-1">Apenas canteiros com status "Colhendo", "Esperando colheita" ou "Atrasado" aparecem aqui.</p>
+                <p className="text-xs text-slate-400 mt-1">Aqui aparecem os canteiros em colheita e, minimizados, os atrasados. Use "Ver prontos para colher e no campo" para iniciar outros.</p>
               </div>
             ) : visibleCanteiros.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-slate-200 text-center p-6 shadow-sm">
@@ -859,18 +565,23 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
                   return (
                     <div key={cat.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className={`p-4 border-b border-slate-200 flex justify-between items-center ${cat.color}`}>
+                      <div
+                        onClick={() => cat.minimizado && setAtrasadosAbertos(v => !v)}
+                        className={`p-4 border-b border-slate-200 flex justify-between items-center ${cat.color} ${cat.minimizado ? "cursor-pointer select-none" : ""}`}
+                      >
                         <h2 className="text-xs font-black uppercase tracking-widest">{cat.label}</h2>
-                        <span className="text-xs font-mono font-bold">({catItems.length})</span>
+                        <span className="text-xs font-mono font-bold">
+                          ({catItems.length}){cat.minimizado ? (atrasadosAbertos ? " ▲" : " ▼") : ""}
+                        </span>
                       </div>
-                      <div className="overflow-x-auto">
+                      <div className={`overflow-x-auto ${cat.minimizado && !atrasadosAbertos ? "hidden" : ""}`}>
                         <table className="w-full text-left text-sm border-collapse">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                               <th className="p-4">Canteiro ID / Cultura</th>
                               <th className="p-4 text-center">Talhão</th>
                               <th className="p-4 text-center">Previsão</th>
-                              <th className="p-4 text-center">Acumulado</th>
+                              <th className="p-4 text-center">Colhido / falta</th>
                               <th className="p-4 text-right w-[200px]">Lançar Qtd</th>
                             </tr>
                           </thead>
@@ -915,11 +626,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                     <span className="text-[10px] text-slate-400 font-medium block mt-1">Prev: {p.previsao ? p.previsao.split("-").reverse().slice(0, 2).join("/") : "—"}</span>
                                   </td>
                                   <td className="p-4 text-center text-xs">
-                                    <div className="font-extrabold text-emerald-700 font-mono text-sm">
-                                      {p.totalColhido} {getCropHarvestUnit(p.cultura)}
-                                    </div>
-                                    <div className="text-[10px] text-slate-400 font-sans">
-                                      Plantado: {p.quantidade} {p.unidade}
+                                    <ProgressoColheita plantio={p} crops={crops} />
+                                    <div className="text-[10px] text-slate-400 font-sans mt-1">
+                                      Plantado: {p.quantidade} {p.unidade === "m²" ? "m²" : "mudas"}
                                     </div>
                                   </td>
                                   <td className="p-4 text-right">
@@ -1401,13 +1110,13 @@ export default function Harvests({ onNotify }: HarvestsProps) {
             className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl relative z-10 border border-slate-200"
           >
             <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
-              <h3 className="font-bold text-indigo-900">Transferir ID do Canteiro</h3>
+              <h3 className="font-bold text-indigo-900">Mudar ID da colheita</h3>
               <button onClick={() => setIsMudarIDOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="p-5 space-y-4">
               <p className="text-xs text-slate-500 font-semibold">
-                Trocar canteiro de <span className="font-bold text-slate-800">{selectedPlantingCultura}</span> (Talhão: {selectedPlantingTalhao})
+                Encerra a colheita de <span className="font-mono font-bold text-slate-800">{selectedPlantingId}</span>: ele vai para Finalizados com a data de hoje, e as colheitas dele ficam no histórico do plantio e do lote de compra. O canteiro escolhido abaixo passa a ficar em colheita.
               </p>
               
               <div className="space-y-1.5">
@@ -1417,7 +1126,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                   onChange={(e) => setMudarIDTargetPlanting(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 text-xs text-slate-800 rounded-lg outline-none focus:border-emerald-500 font-semibold"
                 >
-                  <option value="">Apenas Finalizar Plantio Atual</option>
+                  <option value="">Só encerrar, sem começar outro canteiro</option>
                   {plantings
                     .filter(p => p.cultura === selectedPlantingCultura && p.id !== selectedPlantingId && p.status !== "Finalizado")
                     .map(p => (

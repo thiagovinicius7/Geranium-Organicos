@@ -5,7 +5,7 @@
 
 import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
 import { readFileSync } from "fs";
-import { doc, getDoc, getDocs, collection, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, serverTimestamp, Timestamp } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, serverTimestamp, Timestamp, increment } from "firebase/firestore";
 
 const env = await initializeTestEnvironment({
   projectId: "demo-geranium",
@@ -83,6 +83,21 @@ await t("lanc grava colheita + total do plantio juntos", true, () => {
   b.update(doc(L, "plantings", "p1"), { totalColhido: 8, status: "Colhendo" });
   return b.commit();
 });
+await t("lanc cria perene já em colheita", true, () => addDoc(collection(L, "plantings"), { tipo: "Perene", status: "Colhendo", totalColhido: 0, ...stamp }));
+await t("lanc NÃO cria muda já em colheita", false, () => addDoc(collection(L, "plantings"), { tipo: "Muda", status: "Colhendo", totalColhido: 0, ...stamp }));
+await t("lanc grava colheita com total somado no servidor (increment)", true, () => {
+  const b = writeBatch(L);
+  b.set(doc(collection(L, "harvests")), { qtd: 2, unidade: "kg", idLote: "k1", ...stamp });
+  b.update(doc(L, "plantings", "p1"), { totalColhido: increment(2), status: "Colhendo" });
+  return b.commit();
+});
+await t("lanc corrige a própria colheita e o total junto", true, () => {
+  const b = writeBatch(L);
+  b.update(doc(L, "harvests", "hmine"), { qtd: 5 });
+  b.update(doc(L, "plantings", "p1"), { totalColhido: increment(1) });
+  return b.commit();
+});
+await t("lanc NÃO deixa o total colhido negativo", false, () => updateDoc(doc(L, "plantings", "p1"), { totalColhido: increment(-1000) }));
 await t("lanc apaga a própria colheita recente", true, () => deleteDoc(doc(L, "harvests", "hmine")));
 
 // Editor

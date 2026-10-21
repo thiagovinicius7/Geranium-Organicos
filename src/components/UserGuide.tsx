@@ -207,11 +207,15 @@ export default function UserGuide() {
                   <span className="text-[10px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full font-bold uppercase">Crescimento</span>
                 </li>
                 <li className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
-                  <span className="font-bold text-slate-700">⏱️ Esperando colheita</span>
-                  <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold uppercase">Maduro</span>
+                  <span className="font-bold text-slate-700">✅ Pronto para colher</span>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold uppercase">Da previsão até 14 dias</span>
                 </li>
                 <li className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
-                  <span className="font-bold text-slate-700">🧺 Colhendo</span>
+                  <span className="font-bold text-slate-700">⚠️ Colheita atrasada</span>
+                  <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-bold uppercase">15+ dias da previsão</span>
+                </li>
+                <li className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
+                  <span className="font-bold text-slate-700">🍓 Em colheita</span>
                   <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold uppercase">Ativo</span>
                 </li>
                 <li className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
@@ -229,6 +233,9 @@ export default function UserGuide() {
                 </p>
                 <div className="mt-2 text-xs p-2.5 bg-emerald-50 rounded-xl border border-emerald-100/50 font-mono text-emerald-800 text-center">
                   Previsão = Data Plantio + Ciclo Cultura
+                </div>
+                <div className="mt-2 text-xs p-2.5 bg-slate-50 rounded-xl border border-slate-200 font-mono text-slate-700 text-center">
+                  Colher até = Previsão + Duração da colheita
                 </div>
               </div>
               <div className="text-[11px] text-slate-500">

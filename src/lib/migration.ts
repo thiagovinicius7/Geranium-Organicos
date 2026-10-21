@@ -116,23 +116,31 @@ export function summarize(data: MigrationData): Record<string, number> {
   return out;
 }
 
+/** What the migration panel selects by default: crops and settings only. */
+export const DEFAULT_SELECTION: string[] = ["crops", "metadata", "authorized_emails"];
+
 /**
- * Writes migrated data into this app's database. Production collections are
- * cleared first so the copy is exact (and the default crops created on first
- * login don't get duplicated). Settings are upserted.
+ * Writes the selected collections into this app's database. A selected
+ * production collection is cleared first so the copy is exact (and the
+ * default crops created on first login don't get duplicated). Settings are
+ * upserted. Collections that are not selected are left untouched.
  */
 export async function writeToCurrentDatabase(
   data: MigrationData,
+  selected: string[],
   onProgress: (msg: string) => void
 ): Promise<Record<string, number>> {
+  const chosen = ALL_COLLECTIONS.filter(name => selected.includes(name));
+
   for (const name of DATA_COLLECTIONS) {
+    if (!chosen.includes(name)) continue;
     onProgress(`Limpando "${name}" no banco novo…`);
     const snap = await getDocs(collection(db, name));
     await commitInBatches(snap.docs.map(d => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)));
   }
 
   const written: Record<string, number> = {};
-  for (const name of ALL_COLLECTIONS) {
+  for (const name of chosen) {
     let docs = data[name] || [];
     if (name === "authorized_emails") docs = cleanAuthorizedEmails(docs);
     onProgress(`Gravando ${docs.length} registro(s) em "${name}"…`);

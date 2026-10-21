@@ -80,18 +80,22 @@ Faça o merge na `main`. O GitHub Actions gera e publica o site sozinho.
 2. No menu, abra **Migrar Dados** (só aparece para administradores).
 3. Clique em **Copiar do banco antigo**. Uma janela de login Google do banco
    antigo vai abrir; entre com a mesma conta.
-4. Confira os totais de cada coleção, marque a confirmação e clique em
-   **Gravar no banco novo**.
+4. Confira os totais e marque o que deve ir para o banco novo. Já vêm marcados
+   **Culturas**, **Configurações** e **E-mails autorizados**. Plantios,
+   colheitas, compras e licenças ficam desmarcados e começam do zero, mas você
+   pode marcar qualquer um deles.
+5. Marque a confirmação e clique em **Gravar no banco novo**.
 
 Se preferir, use **Restaurar de um arquivo de backup** com um `.json` gerado em
 *Importar Planilha → Baixar Backup* no app antigo.
 
 O que acontece na gravação:
 
-- Culturas, compras, plantios, colheitas e licenças do banco novo são apagados
-  e substituídos pela cópia (isso evita duplicar as culturas padrão criadas no
-  primeiro login).
+- Coleções de dados marcadas (por exemplo, Culturas) são apagadas no banco novo
+  e substituídas pela cópia. Isso evita duplicar as culturas padrão criadas no
+  primeiro login.
 - Configurações e e-mails autorizados são somados aos atuais.
+- O que ficar desmarcado não é copiado.
 - A conta `certificadora@geranium.com.br` não é copiada. O acesso por usuário e
   senha foi removido.
 

@@ -23,8 +23,7 @@ export interface AuthSettings {
  * protect the data; this list only drives the interface.
  */
 export const PERMANENT_ADMIN_EMAILS = [
-  "thiagovinicius7@gmail.com",
-  "rafaelmorenocampos@gmail.com"
+  "thiagovinicius7@gmail.com"
 ];
 
 

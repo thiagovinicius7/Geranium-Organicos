@@ -401,7 +401,7 @@ export default function AuthorizedEmailsModal({ isOpen, onClose, currentUserEmai
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="ex: rafaelmorenocampos@gmail.com, equipe@geranium.com.br"
+                  placeholder="ex: fulano@gmail.com, equipe@geranium.com.br"
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
                   disabled={isSubmitting}

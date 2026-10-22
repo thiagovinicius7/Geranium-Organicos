@@ -119,7 +119,7 @@ export async function seedDatabaseIfEmpty() {
     const authEmailsSnapshot = await getDocs(authEmailsCol);
     if (authEmailsSnapshot.empty) {
       console.log("Seeding authorized admin emails...");
-      const admins = ["thiagovinicius7@gmail.com", "rafaelmorenocampos@gmail.com"];
+      const admins = ["thiagovinicius7@gmail.com"];
       for (const mail of admins) {
         const id = mail.replace(/[^a-zA-Z0-9_.]/g, "_");
         await setDoc(doc(authEmailsCol, id), {

@@ -38,8 +38,7 @@ service cloud.firestore {
 
     function isPermanentAdmin() {
       return userEmail() in [
-        'thiagovinicius7@gmail.com',
-        'rafaelmorenocampos@gmail.com'
+        'thiagovinicius7@gmail.com'
       ];
     }
 

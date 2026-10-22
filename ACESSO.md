@@ -12,8 +12,7 @@ alguém tente pelo navegador, o Firestore recusa o que o perfil não permite.
 | **Editor** | Lança, edita e apaga todos os dados da produção (culturas, compras, plantios, colheitas, licenças, dados do sítio). |
 | **Lançamentos** | Vê tudo. Registra plantios, colheitas e compras. Corrige ou apaga **só as próprias colheitas, nas primeiras 12 horas**. Não altera culturas, licenças nem configurações, não finaliza plantios e não apaga plantios nem compras. |
 
-- Os administradores permanentes são `thiagovinicius7@gmail.com` e
-  `rafaelmorenocampos@gmail.com`. Para mudar essa lista, altere `isPermanentAdmin()`
+- O administrador permanente é `thiagovinicius7@gmail.com`. Para mudar essa lista, altere `isPermanentAdmin()`
   em `firestore.rules` **e** `PERMANENT_ADMIN_EMAILS` em `src/lib/authorizedEmails.ts`.
 - Quem entra por um **domínio liberado** ou pelo **modo aberto** recebe perfil Editor.
 - Um e-mail cadastrado vale pelo perfil do cadastro, mesmo que o domínio também

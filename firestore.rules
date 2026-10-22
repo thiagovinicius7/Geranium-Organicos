@@ -7,8 +7,9 @@ rules_version = '2';
 //   user      Editor: lê e altera todos os dados da produção.
 //   lancador  Lançamentos: lê tudo, registra plantios, colheitas e compras,
 //             e corrige ou apaga só as próprias colheitas nas primeiras 12 horas.
-//             Não altera culturas, licenças nem configurações, e não apaga
-//             plantios ou compras.
+//             Cadastra cultura nova e encerra a colheita de um plantio
+//             (Mudar ID). Não altera culturas existentes, licenças nem
+//             configurações, e não apaga plantios, compras ou culturas.
 //
 // Domínios liberados e o modo aberto dão perfil Editor. Um e-mail cadastrado
 // vale pelo perfil do cadastro, mesmo que o domínio também esteja liberado.
@@ -144,6 +145,24 @@ service cloud.firestore {
             || request.resource.data.status == 'Colhendo');
     }
 
+    // Mudar ID: encerra a colheita de um plantio aberto. Só muda status,
+    // data de fim e observação; não reabre nem apaga.
+    function launcherClosesPlanting() {
+      return isLauncher()
+        && changed().hasOnly(['status', 'dataFim', 'obs'])
+        && resource.data.get('status', '') != 'Finalizado'
+        && request.resource.data.status == 'Finalizado'
+        && request.resource.data.dataFim is string
+        && request.resource.data.dataFim.size() == 10;
+    }
+
+    // Cultura nova, com nome e assinatura de quem cadastrou.
+    function launcherCreatesCrop() {
+      return isLauncher() && stampedNow()
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() > 0;
+    }
+
     // Nova compra entra com o saldo cheio.
     function launcherCreatesPurchase() {
       return isLauncher() && stampedNow()
@@ -164,7 +183,8 @@ service cloud.firestore {
 
     match /crops/{id} {
       allow read: if isMember();
-      allow write: if canEdit();
+      allow create: if canEdit() || launcherCreatesCrop();
+      allow update, delete: if canEdit();
     }
 
     match /licenses/{id} {
@@ -182,7 +202,7 @@ service cloud.firestore {
     match /plantings/{id} {
       allow read: if isMember();
       allow create: if canEdit() || launcherCreatesPlanting();
-      allow update: if canEdit() || launcherUpdatesPlanting();
+      allow update: if canEdit() || launcherUpdatesPlanting() || launcherClosesPlanting();
       allow delete: if canEdit();
     }
 

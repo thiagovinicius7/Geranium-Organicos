@@ -10,7 +10,7 @@ alguém tente pelo navegador, o Firestore recusa o que o perfil não permite.
 |---|---|
 | **Administrador** | Tudo, inclusive liberar e remover acessos e mudar perfis. |
 | **Editor** | Lança, edita e apaga todos os dados da produção (culturas, compras, plantios, colheitas, licenças, dados do sítio). |
-| **Lançamentos** | Vê tudo. Registra plantios, colheitas e compras. Corrige ou apaga **só as próprias colheitas, nas primeiras 12 horas**. Não altera culturas, licenças nem configurações, não finaliza plantios e não apaga plantios nem compras. |
+| **Lançamentos** | Vê tudo. Registra plantios, colheitas, compras e **culturas novas**, e encerra a colheita de um plantio (**Mudar ID**). Corrige ou apaga **só as próprias colheitas, nas primeiras 12 horas**. Não altera culturas existentes, licenças nem configurações, e não apaga plantios, compras nem culturas. |
 
 - O administrador permanente é `thiagovinicius7@gmail.com`. Para mudar essa lista, altere `isPermanentAdmin()`
   em `firestore.rules` **e** `PERMANENT_ADMIN_EMAILS` em `src/lib/authorizedEmails.ts`.

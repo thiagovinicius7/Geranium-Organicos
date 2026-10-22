@@ -8,8 +8,9 @@ import { auth } from "./firebase";
  *
  *  admin     Administrador: everything, including who has access.
  *  user      Editor: reads and changes all production data.
- *  lancador  Lançamentos: records plantings, harvests and purchases, and fixes
- *            or deletes only their own harvests within the first 12 hours.
+ *  lancador  Lançamentos: records plantings, harvests, purchases and new crops,
+ *            closes a planting's harvest (Mudar ID), and fixes or deletes only
+ *            their own harvests within the first 12 hours.
  */
 export type AccessRole = "admin" | "user" | "lancador";
 
@@ -22,7 +23,7 @@ export const ROLE_LABELS: Record<AccessRole, string> = {
 export const ROLE_DESCRIPTIONS: Record<AccessRole, string> = {
   admin: "Tudo, inclusive liberar e remover acessos.",
   user: "Lança, edita e apaga todos os dados da produção.",
-  lancador: "Só registra plantios, colheitas e compras. Corrige as próprias colheitas por 12 horas."
+  lancador: "Registra plantios, colheitas, compras e culturas novas, e encerra colheitas (Mudar ID). Corrige as próprias colheitas por 12 horas."
 };
 
 /** Window in which a "lancador" can still fix or delete their own harvest. */

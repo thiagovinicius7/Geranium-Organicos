@@ -23,6 +23,7 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, "crops", "c1"), { nome: "Alface" });
   await setDoc(doc(db, "licenses", "l1"), { nome: "Selo" });
   await setDoc(doc(db, "plantings", "p1"), { status: "No campo", totalColhido: 0, cultura: "Alface" });
+  await setDoc(doc(db, "plantings", "p2"), { status: "No campo", totalColhido: 0, cultura: "Alface" });
   await setDoc(doc(db, "plantings", "pfim"), { status: "Finalizado", totalColhido: 5 });
   await setDoc(doc(db, "purchases", "k1"), { status: "Ativo", saldo: 10, quantidade: 10 });
   await setDoc(doc(db, "harvests", "hmine"), { qtd: 3, criadoPor: "lanc", criadoEm: hoursAgo(1) });
@@ -47,7 +48,10 @@ async function t(name, expectOk, fn) {
 await t("lanc lê culturas", true, () => getDocs(collection(L, "crops")));
 await t("lanc lê colheitas", true, () => getDocs(collection(L, "harvests")));
 await t("lanc NÃO altera cultura", false, () => updateDoc(doc(L, "crops", "c1"), { nome: "X" }));
-await t("lanc NÃO cria cultura", false, () => addDoc(collection(L, "crops"), { nome: "X" }));
+await t("lanc NÃO cria cultura sem assinatura", false, () => addDoc(collection(L, "crops"), { nome: "X" }));
+await t("lanc cria cultura nova", true, () => addDoc(collection(L, "crops"), { nome: "Quiabo", dias: 60, duracao: 60, ...stamp }));
+await t("lanc NÃO cria cultura sem nome", false, () => addDoc(collection(L, "crops"), { nome: "", ...stamp }));
+await t("lanc NÃO apaga cultura", false, () => deleteDoc(doc(L, "crops", "c1")));
 await t("lanc NÃO altera licença", false, () => updateDoc(doc(L, "licenses", "l1"), { nome: "X" }));
 await t("lanc NÃO altera config", false, () => setDoc(doc(L, "metadata", "geranium"), { nome: "X" }));
 await t("lanc NÃO libera e-mails", false, () => setDoc(doc(L, "authorized_emails", "z"), { email: "z@z", role: "admin" }));
@@ -67,7 +71,9 @@ await t("lanc cria plantio", true, () => addDoc(collection(L, "plantings"), { st
 await t("lanc NÃO cria plantio já finalizado", false, () => addDoc(collection(L, "plantings"), { status: "Finalizado", totalColhido: 0, ...stamp }));
 await t("lanc inicia colheita do plantio", true, () => updateDoc(doc(L, "plantings", "p1"), { status: "Colhendo" }));
 await t("lanc atualiza total colhido", true, () => updateDoc(doc(L, "plantings", "p1"), { totalColhido: 7, status: "Colhendo" }));
-await t("lanc NÃO finaliza plantio", false, () => updateDoc(doc(L, "plantings", "p1"), { status: "Finalizado" }));
+await t("lanc NÃO finaliza plantio sem data de fim", false, () => updateDoc(doc(L, "plantings", "p1"), { status: "Finalizado" }));
+await t("lanc NÃO finaliza mexendo em outro campo", false, () => updateDoc(doc(L, "plantings", "p1"), { status: "Finalizado", dataFim: "2026-10-21", totalColhido: 0 }));
+await t("lanc NÃO reescreve fim de plantio já finalizado", false, () => updateDoc(doc(L, "plantings", "pfim"), { status: "Finalizado", dataFim: "2026-10-21" }));
 await t("lanc NÃO edita outros campos do plantio", false, () => updateDoc(doc(L, "plantings", "p1"), { cultura: "X" }));
 await t("lanc NÃO reabre plantio finalizado", false, () => updateDoc(doc(L, "plantings", "pfim"), { status: "Colhendo" }));
 await t("lanc NÃO apaga plantio", false, () => deleteDoc(doc(L, "plantings", "p1")));
@@ -99,6 +105,12 @@ await t("lanc corrige a própria colheita e o total junto", true, () => {
 });
 await t("lanc NÃO deixa o total colhido negativo", false, () => updateDoc(doc(L, "plantings", "p1"), { totalColhido: increment(-1000) }));
 await t("lanc apaga a própria colheita recente", true, () => deleteDoc(doc(L, "harvests", "hmine")));
+await t("lanc faz Mudar ID (encerra um, inicia outro)", true, () => {
+  const b = writeBatch(L);
+  b.update(doc(L, "plantings", "p1"), { status: "Finalizado", dataFim: "2026-10-21", obs: "Colheita encerrada em 21/10/2026." });
+  b.update(doc(L, "plantings", "p2"), { status: "Colhendo" });
+  return b.commit();
+});
 
 // Editor
 await t("editor altera cultura", true, () => updateDoc(doc(E, "crops", "c1"), { nome: "Alface Crespa" }));

@@ -142,13 +142,24 @@ def chave(cultura, talhao):
 
 # ---------------------------------------------------------------- plano
 
+def na_janela_colheita(p, crop, data):
+    """Plantio está entre o início (data + ciclo) e o fim (+ duração) da colheita."""
+    if p.get("tipo") == "Perene":
+        return True
+    if not p.get("data"):
+        return False
+    ini = somar_dias(p["data"], crop.get("dias") or 0)
+    fim = somar_dias(ini, crop.get("duracao") or 0) if crop.get("duracao") else "9999-12-31"
+    return ini <= data <= fim
+
+
 def novo_plantio(d, crop, talhao, data_quadro):
     tipo = d.get("tipo") or "Muda"
     perene = tipo == "Perene"
     dplant = d.get("data") or data_quadro
     return {
         "id": f"PLAN-{dplant.replace('-', '')[2:]}-{rand(4)}",
-        "idLote": "", "data": dplant, "cultura": crop["nome"], "tipo": tipo, "talhao": talhao,
+        "idLote": d.get("_idLote") or "", "data": dplant, "cultura": crop["nome"], "tipo": tipo, "talhao": talhao,
         "quantidade": d.get("quantidade") or 0,
         "previsao": dplant if perene else somar_dias(dplant, crop.get("dias") or 0),
         "status": "Colhendo" if perene else "No campo",
@@ -168,12 +179,31 @@ def montar_plano(q, plantios, crops, harvests):
     ignorar = {chave(*k.split("|", 1)) for k in (dec.get("ignorar") or [])}
     nao_encerrar = set(dec.get("nao_encerrar") or [])
     novos_crop = {norm(c["nome"]): c for c in (dec.get("culturas_novas") or [])}
-    novos_plant = {chave(p["cultura"], p["talhao"]): p for p in (dec.get("plantios_novos") or [])}
+    lista_plant = dec.get("plantios_novos") or []
+    novos_plant = {}
+    for p in lista_plant:                      # o primeiro de cada cultura+talhão atende a colheita
+        novos_plant.setdefault(chave(p["cultura"], p["talhao"]), p)
 
     crop_por_nome = {norm(c.get("nome")): c for c in crops}
     abertos = [p for p in plantios if p.get("status") != "Finalizado"]
 
-    plano = {"data": data, "culturas": [], "plantios": [], "encerrar": [], "colheitas": [], "pendencias": []}
+    plano = {"data": data, "culturas": [], "compras": [], "plantios": [], "encerrar": [], "colheitas": [],
+             "baixas": [], "pendencias": []}
+
+    # Compras (entrada de mudas/sementes). Cada plantio pode apontar para uma compra pela "chave".
+    compras = {}
+    for c in (dec.get("compras") or []):
+        cid = c.get("id") or f"COMP-{c['data'].replace('-', '')[2:]}-{rand(4)}"
+        compra = {"id": cid, "data": c["data"], "fornecedor": c.get("fornecedor") or "", "nf": c.get("nf") or "",
+                  "tipo": c.get("tipo") or "Muda", "cultura": c["cultura"], "quantidade": c["quantidade"],
+                  "saldo": c["quantidade"], "status": "Ativo", "origem": "quadro"}
+        compras[c["chave"]] = compra
+    usado = {k: 0 for k in compras}
+    for d in (dec.get("plantios_novos") or []):
+        if d.get("compra"):
+            if d["compra"] not in compras:
+                sys.exit(f"Plantio aponta para compra inexistente: {d['compra']}")
+            d["_idLote"] = compras[d["compra"]]["id"]
     encerrar_ids = {}
 
     def pend(tipo, item, texto, extra=None):
@@ -225,10 +255,19 @@ def montar_plano(q, plantios, crops, harvests):
                 continue
         elif aqui:
             colhendo = [p for p in aqui if p.get("status") == "Colhendo"]
+            na_janela = sorted([p for p in aqui if na_janela_colheita(p, crop, data)], key=lambda p: p.get("data") or "")
             if len(colhendo) == 1:
                 alvo = colhendo[0]
-            elif len(colhendo) == 0 and len(aqui) == 1:
+            elif len(na_janela) >= 1:
+                alvo = na_janela[0]          # o mais antigo que está na época de colher
+            elif len(aqui) == 1 and aqui[0].get("tipo") == "Perene":
                 alvo = aqui[0]
+            elif len(aqui) == 1:
+                p = aqui[0]
+                pend("fora_da_janela", it, f"O plantio {p.get('id')} de {nome} no talhão {talhao} (plantado "
+                     f"{br(p.get('data'))}) não está na época de colheita em {br(data)}. Deve ser de outro plantio.",
+                     {"opcoes": [{"id": p.get("id"), "data": p.get("data"), "status": p.get("status")}]})
+                continue
             else:
                 opcoes = colhendo or aqui
                 pend("varios_plantios", it, f"Há {len(opcoes)} plantios abertos de {nome} no talhão {talhao}.",
@@ -237,7 +276,9 @@ def montar_plano(q, plantios, crops, harvests):
                 continue
         elif k in novos_plant:
             novo = novo_plantio(novos_plant[k], crop, talhao, data)
-            usados.add(k)
+            if novos_plant[k].get("compra"):
+                usado[novos_plant[k]["compra"]] += novo["quantidade"]
+            usados.add(id(novos_plant[k]))
             plano["plantios"].append(novo)
             alvo = dict(novo, _docId=None, _novo=True)
         else:
@@ -274,8 +315,8 @@ def montar_plano(q, plantios, crops, harvests):
                                    "idLote": alvo.get("idLote") or "", "status_antes": alvo.get("status")})
 
     # Plantios informados sem colheita no quadro (ex.: quadro de plantio)
-    for k, d in novos_plant.items():
-        if k in usados:
+    for d in lista_plant:
+        if id(d) in usados:
             continue
         crop = crop_por_nome.get(norm(d["cultura"]))
         if not crop and norm(d["cultura"]) in novos_crop:
@@ -293,7 +334,19 @@ def montar_plano(q, plantios, crops, harvests):
             pend("plantio_existe", d, f"Já existe plantio de {crop['nome']} no talhão {norm_talhao(d['talhao'])} "
                                       f"com data {br(d['data'])} ({aqui[0].get('id')}).")
             continue
-        plano["plantios"].append(novo_plantio(d, crop, norm_talhao(d["talhao"]), data))
+        novo = novo_plantio(d, crop, norm_talhao(d["talhao"]), data)
+        if d.get("compra"):
+            usado[d["compra"]] += novo["quantidade"]
+        plano["plantios"].append(novo)
+
+    for k, compra in compras.items():
+        cr = crop_por_nome.get(norm(compra["cultura"]))
+        if cr:
+            compra["cultura"] = cr["nome"]
+        plano["compras"].append(compra)
+        if usado[k]:
+            saldo = max(0, compra["quantidade"] - usado[k])
+            plano["baixas"].append({"id": compra["id"], "saldo": saldo, "status": "Esgotado" if saldo == 0 else "Ativo"})
 
     # Plantio que ainda está sendo colhido neste quadro não é encerrado
     colhidos = {c["idPlantio"] for c in plano["colheitas"]}
@@ -307,6 +360,10 @@ def imprimir(plano):
         print("CULTURAS NOVAS")
         for c in plano["culturas"]:
             print(f"  + {c['nome']} (ciclo {c['dias']} d, colheita {c['duracao']} d, {c['unidadeColheita']})")
+    if plano["compras"]:
+        print("COMPRAS NOVAS")
+        for c in plano["compras"]:
+            print(f"  + {c['id']}  {br(c['data'])}  {c['fornecedor']}  {c['cultura']}  {c['quantidade']} ({c['tipo']})")
     if plano["plantios"]:
         print("PLANTIOS NOVOS")
         for p in plano["plantios"]:
@@ -340,17 +397,29 @@ def gravar(plano, token, uid, email):
         w1.append({"update": {"name": f"{ROOT}/crops/{rand(20, string.ascii_letters + string.digits)}",
                               "fields": campos_fs({**c, **stamp, "origem": "quadro"})},
                    "currentDocument": {"exists": False}, "updateTransforms": now})
+    for c in plano["compras"]:
+        w1.append({"update": {"name": f"{ROOT}/purchases/{rand(20, string.ascii_letters + string.digits)}",
+                              "fields": campos_fs({**c, **stamp})},
+                   "currentDocument": {"exists": False}, "updateTransforms": now})
     for p in plano["plantios"]:
         did = rand(20, string.ascii_letters + string.digits)
         novos_doc[p["id"]] = did
         w1.append({"update": {"name": f"{ROOT}/plantings/{did}", "fields": campos_fs({**p, **stamp})},
                    "currentDocument": {"exists": False}, "updateTransforms": now})
+    compra_doc = {}
     if w1:
-        http("POST", f"{BASE}:commit", {"writes": w1}, token=token)
+        r = http("POST", f"{BASE}:commit", {"writes": w1}, token=token)
+        for w in w1:
+            nome_doc = w["update"]["name"]
+            if "/purchases/" in nome_doc:
+                compra_doc[w["update"]["fields"]["id"]["stringValue"]] = nome_doc
 
     # Etapa 2: Mudar ID + colheitas
     sessao = f"COL-{plano['data'].replace('-', '')[2:]}-{rand(4)}"
     w2 = []
+    for b in plano["baixas"]:
+        w2.append({"update": {"name": compra_doc[b["id"]], "fields": campos_fs({"saldo": b["saldo"], "status": b["status"]})},
+                   "updateMask": {"fieldPaths": ["saldo", "status"]}, "currentDocument": {"exists": True}})
     for e in plano["encerrar"]:
         w2.append({"update": {"name": f"{ROOT}/plantings/{e['_docId']}",
                               "fields": campos_fs({"status": "Finalizado", "dataFim": e["dataFim"], "obs": e["obs"]})},
@@ -396,11 +465,11 @@ def main():
         return
     if plano["pendencias"]:
         sys.exit("\nHá pendências. Nada foi gravado.")
-    if not (plano["colheitas"] or plano["plantios"] or plano["culturas"]):
+    if not (plano["colheitas"] or plano["plantios"] or plano["culturas"] or plano["compras"]):
         sys.exit("\nNada para gravar.")
     sessao = gravar(plano, token, uid, email)
     print(f"\nGRAVADO: sessão {sessao} — {len(plano['colheitas'])} colheitas, {len(plano['plantios'])} plantios novos,"
-          f" {len(plano['culturas'])} culturas novas, {len(plano['encerrar'])} Mudar ID.")
+          f" {len(plano['culturas'])} culturas novas, {len(plano['compras'])} compras, {len(plano['encerrar'])} Mudar ID.")
 
 
 if __name__ == "__main__":

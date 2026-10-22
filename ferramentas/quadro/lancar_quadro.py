@@ -278,6 +278,12 @@ def montar_plano(q, plantios, crops, harvests):
         if k in usados:
             continue
         crop = crop_por_nome.get(norm(d["cultura"]))
+        if not crop and norm(d["cultura"]) in novos_crop:
+            nc = novos_crop[norm(d["cultura"])]
+            crop = {"nome": nc["nome"], "dias": int(nc.get("dias") or 0), "duracao": int(nc.get("duracao") or 0),
+                    "unidadeColheita": nc.get("unidadeColheita") or "UN", "cientifico": nc.get("cientifico") or ""}
+            plano["culturas"].append(crop)
+            crop_por_nome[norm(crop["nome"])] = crop
         if not crop:
             pend("cultura_nova", d, f"A cultura '{d['cultura']}' não existe no app.")
             continue

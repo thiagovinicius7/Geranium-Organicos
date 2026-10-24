@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
-import { calcularHistorico,
+import { normalizarUnidade, calcularHistorico,
   statusCalculado, grupoColheita, GRUPOS_COLHEITA, hojeLocal, novoIdSessao, encontrarPlantio,
   colheitasDoPlantio, verificarLimite, lancarColheitas, ajustarColheita, excluirColheitas,
   iniciarColheita, mudarIdColheita, ItemColheita, formatarData
@@ -109,9 +109,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
   };
 
   const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {
-    if (!culturaName) return fallback || "kg";
+    if (!culturaName) return normalizarUnidade(fallback) || "KG";
     const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
-    return found?.unidadeColheita || fallback || "kg";
+    return normalizarUnidade(found?.unidadeColheita || fallback) || "KG";
   };
 
   const getCalculatedStatus = (p: Planting) => statusCalculado(p);

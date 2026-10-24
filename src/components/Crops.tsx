@@ -3,6 +3,7 @@ import { CanEdit, usePermissions } from "../lib/permissions";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Crop } from "../types";
+import { normalizarUnidade } from "../lib/producao";
 import { Plus, Edit2, Search, ArrowLeft, Loader2, Leaf, AlertCircle, Trash2, GitMerge, CheckCircle2, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -23,7 +24,7 @@ export default function Crops({ onNotify }: CropsProps) {
   const [cientifico, setCientifico] = useState<string>("");
   const [dias, setDias] = useState<number>(0);
   const [duracao, setDuracao] = useState<number>(0);
-  const [unidadeColheita, setUnidadeColheita] = useState<string>("kg");
+  const [unidadeColheita, setUnidadeColheita] = useState<string>("KG");
   const [saving, setSaving] = useState<boolean>(false);
 
   // Deduplication state
@@ -69,8 +70,8 @@ export default function Crops({ onNotify }: CropsProps) {
       if (list.length > 1) {
         // Sort by field completeness
         const sorted = [...list].sort((a, b) => {
-          let scoreA = (a.cientifico ? 2 : 0) + (a.dias > 0 ? 1 : 0) + (a.duracao > 0 ? 1 : 0) + (a.unidadeColheita && a.unidadeColheita !== 'kg' ? 1 : 0);
-          let scoreB = (b.cientifico ? 2 : 0) + (b.dias > 0 ? 1 : 0) + (b.duracao > 0 ? 1 : 0) + (b.unidadeColheita && b.unidadeColheita !== 'kg' ? 1 : 0);
+          let scoreA = (a.cientifico ? 2 : 0) + (a.dias > 0 ? 1 : 0) + (a.duracao > 0 ? 1 : 0) + (a.unidadeColheita && normalizarUnidade(a.unidadeColheita) !== 'KG' ? 1 : 0);
+          let scoreB = (b.cientifico ? 2 : 0) + (b.dias > 0 ? 1 : 0) + (b.duracao > 0 ? 1 : 0) + (b.unidadeColheita && normalizarUnidade(b.unidadeColheita) !== 'KG' ? 1 : 0);
           return scoreB - scoreA;
         });
         groups.push({ key, primary: sorted[0], duplicates: sorted.slice(1) });
@@ -107,14 +108,14 @@ export default function Crops({ onNotify }: CropsProps) {
         let bestCientifico = primary.cientifico || "";
         let bestDias = primary.dias || 0;
         let bestDuracao = primary.duracao || 0;
-        let bestUnidade = primary.unidadeColheita || "kg";
+        let bestUnidade = normalizarUnidade(primary.unidadeColheita) || "KG";
 
         for (const dup of duplicates) {
           if (!bestCientifico && dup.cientifico) bestCientifico = dup.cientifico;
           if (!bestDias && dup.dias) bestDias = dup.dias;
           if (!bestDuracao && dup.duracao) bestDuracao = dup.duracao;
-          if ((!bestUnidade || bestUnidade === "kg") && dup.unidadeColheita && dup.unidadeColheita !== "kg") {
-            bestUnidade = dup.unidadeColheita;
+          if ((!bestUnidade || bestUnidade === "KG") && dup.unidadeColheita && normalizarUnidade(dup.unidadeColheita) !== "KG") {
+            bestUnidade = normalizarUnidade(dup.unidadeColheita);
           }
         }
 
@@ -198,11 +199,11 @@ export default function Crops({ onNotify }: CropsProps) {
     }
   };
 
-  const PRESET_UNITS = ["kg", "UN", "MÇ", "BJ", "PCT", "CX", "g", "dz"];
+  const PRESET_UNITS = ["KG", "UN", "MÇ", "BJ", "PCT", "CX", "g", "DZ"];
 
   const handleInlineUnitChange = async (crop: Crop, newUnit: string) => {
     if (!crop.id) return;
-    const trimmed = newUnit.trim();
+    const trimmed = normalizarUnidade(newUnit);
     if (!trimmed) return;
 
     // Optimistic update
@@ -224,7 +225,7 @@ export default function Crops({ onNotify }: CropsProps) {
     setCientifico("");
     setDias(0);
     setDuracao(0);
-    setUnidadeColheita("kg");
+    setUnidadeColheita("KG");
     setIsFormOpen(true);
   };
 
@@ -234,7 +235,7 @@ export default function Crops({ onNotify }: CropsProps) {
     setCientifico(crop.cientifico || "");
     setDias(crop.dias);
     setDuracao(crop.duracao);
-    setUnidadeColheita(crop.unidadeColheita || "kg");
+    setUnidadeColheita(normalizarUnidade(crop.unidadeColheita) || "KG");
     setIsFormOpen(true);
   };
 
@@ -254,7 +255,7 @@ export default function Crops({ onNotify }: CropsProps) {
         cientifico: cientifico.trim(),
         dias: Number(dias) || 0,
         duracao: Number(duracao) || 0,
-        unidadeColheita: unidadeColheita.trim() || "kg",
+        unidadeColheita: normalizarUnidade(unidadeColheita) || "KG",
       };
 
       if (selectedCrop && selectedCrop.id) {
@@ -399,7 +400,7 @@ export default function Crops({ onNotify }: CropsProps) {
                           <td className="p-4 text-center">
                             <div className="inline-block relative">
                               <select
-                                value={PRESET_UNITS.includes(c.unidadeColheita || "kg") ? (c.unidadeColheita || "kg") : (c.unidadeColheita || "kg")}
+                                value={normalizarUnidade(c.unidadeColheita) || "KG"}
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   if (val === "__CUSTOM__") {
@@ -415,16 +416,16 @@ export default function Crops({ onNotify }: CropsProps) {
                                 className="disabled:cursor-default disabled:opacity-80 appearance-none font-extrabold text-xs px-3 py-1.5 pr-7 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 rounded-xl border border-emerald-200/80 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-200/50 outline-none cursor-pointer transition-all shadow-2xs font-mono"
                                 title="Clique para alterar a unidade de colheita desta cultura diretamente"
                               >
-                                <option value="kg">kg (Quilograma)</option>
+                                <option value="KG">KG (Quilograma)</option>
                                 <option value="UN">UN (Unidade)</option>
                                 <option value="MÇ">MÇ (Maço)</option>
                                 <option value="BJ">BJ (Bandeja)</option>
                                 <option value="PCT">PCT (Pacote)</option>
                                 <option value="CX">CX (Caixa)</option>
                                 <option value="g">g (Grama)</option>
-                                <option value="dz">dz (Dúzia)</option>
-                                {c.unidadeColheita && !PRESET_UNITS.includes(c.unidadeColheita) && (
-                                  <option value={c.unidadeColheita}>{c.unidadeColheita} (Personalizada)</option>
+                                <option value="DZ">DZ (Dúzia)</option>
+                                {c.unidadeColheita && !PRESET_UNITS.includes(normalizarUnidade(c.unidadeColheita)) && (
+                                  <option value={normalizarUnidade(c.unidadeColheita)}>{normalizarUnidade(c.unidadeColheita)} (Personalizada)</option>
                                 )}
                                 <option value="__CUSTOM__">✏️ Outra unidade...</option>
                               </select>

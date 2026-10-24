@@ -5,7 +5,7 @@ import { Planting, Purchase, Harvest, Crop } from "../types";
 import { Search, Loader2, Award, Printer, MapPin, Calendar, HelpCircle, FileText, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import GeraniumLogo from "./GeraniumLogo";
-import { compraDoPlantio, colheitasDoPlantio, statusCalculado, STATUS_INFO } from "../lib/producao";
+import { normalizarUnidade, compraDoPlantio, colheitasDoPlantio, statusCalculado, STATUS_INFO } from "../lib/producao";
 
 interface TraceabilityProps {
   onNotify: (msg: string, type: "success" | "error" | "info") => void;
@@ -55,9 +55,9 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
   };
 
   const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {
-    if (!culturaName) return fallback || "kg";
+    if (!culturaName) return normalizarUnidade(fallback) || "KG";
     const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
-    return found?.unidadeColheita || fallback || "kg";
+    return normalizarUnidade(found?.unidadeColheita || fallback) || "KG";
   };
 
 

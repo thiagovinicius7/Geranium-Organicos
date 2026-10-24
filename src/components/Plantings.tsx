@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { CanEdit, launchStamp } from "../lib/permissions";
-import { calcularHistorico,
+import { normalizarUnidade, calcularHistorico,
   statusCalculado, STATUS_INFO, hojeLocal, somarDias, buscarCultura, unidadeColheita,
   colheitasDoPlantio
 } from "../lib/producao";
@@ -42,9 +42,9 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   const [loading, setLoading] = useState<boolean>(true);
 
   const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {
-    if (!culturaName) return fallback || "kg";
+    if (!culturaName) return normalizarUnidade(fallback) || "KG";
     const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
-    return found?.unidadeColheita || fallback || "kg";
+    return normalizarUnidade(found?.unidadeColheita || fallback) || "KG";
   };
   
   const [viewMode, setViewMode] = useState<"actives" | "finalized" | "create">("actives");

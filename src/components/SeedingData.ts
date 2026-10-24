@@ -3,10 +3,10 @@ import { db } from "../lib/firebase";
 import { Crop } from "../types";
 
 export const DEFAULT_CROPS: Crop[] = [
-  { nome: "Abacate", cientifico: "Persea americana", dias: 0, duracao: 0, unidadeColheita: "kg" },
-  { nome: "Abóbora itália", cientifico: "Cucurbita pepo", dias: 35, duracao: 40, unidadeColheita: "kg" },
-  { nome: "Abóbora menina", cientifico: "Cucurbita moschata", dias: 90, duracao: 30, unidadeColheita: "kg" },
-  { nome: "Açafrão", cientifico: "Curcuma longa", dias: 240, duracao: 60, unidadeColheita: "kg" },
+  { nome: "Abacate", cientifico: "Persea americana", dias: 0, duracao: 0, unidadeColheita: "KG" },
+  { nome: "Abóbora itália", cientifico: "Cucurbita pepo", dias: 35, duracao: 40, unidadeColheita: "KG" },
+  { nome: "Abóbora menina", cientifico: "Cucurbita moschata", dias: 90, duracao: 30, unidadeColheita: "KG" },
+  { nome: "Açafrão", cientifico: "Curcuma longa", dias: 240, duracao: 60, unidadeColheita: "KG" },
   { nome: "Acelga", cientifico: "Beta vulgaris var. cicla", dias: 60, duracao: 50, unidadeColheita: "MÇ" },
   { nome: "Agrião", cientifico: "Nasturtium officinale", dias: 35, duracao: 25, unidadeColheita: "MÇ" },
   { nome: "Agrião da terra", cientifico: "Barbarea verna", dias: 40, duracao: 30, unidadeColheita: "MÇ" },
@@ -20,10 +20,10 @@ export const DEFAULT_CROPS: Crop[] = [
   { nome: "Alho-porró", cientifico: "Allium ampeloprasum", dias: 60, duracao: 45, unidadeColheita: "UN" },
   { nome: "Almeirão", cientifico: "Cichorium intybus", dias: 60, duracao: 40, unidadeColheita: "MÇ" },
   { nome: "Beterraba", cientifico: "Beta vulgaris L.", dias: 75, duracao: 30, unidadeColheita: "MÇ" },
-  { nome: "Brócolis Japonês", cientifico: "Brassica oleracea var. italica", dias: 75, duracao: 40, unidadeColheita: "kg" },
+  { nome: "Brócolis Japonês", cientifico: "Brassica oleracea var. italica", dias: 75, duracao: 40, unidadeColheita: "KG" },
   { nome: "Brócolis ramoso", cientifico: "Brassica oleracea var. italica", dias: 60, duracao: 50, unidadeColheita: "MÇ" },
   { nome: "Cebolinha", cientifico: "Allium fistulosum", dias: 60, duracao: 90, unidadeColheita: "MÇ" },
-  { nome: "Cenoura", cientifico: "Daucus carota", dias: 90, duracao: 30, unidadeColheita: "kg" },
+  { nome: "Cenoura", cientifico: "Daucus carota", dias: 90, duracao: 30, unidadeColheita: "KG" },
   { nome: "Chicória", cientifico: "Cichorium intybus", dias: 50, duracao: 35, unidadeColheita: "MÇ" },
   { nome: "Coentro", cientifico: "Coriandrum sativum", dias: 30, duracao: 20, unidadeColheita: "MÇ" },
   { nome: "Couve", cientifico: "Brassica oleracea var. acephala", dias: 60, duracao: 120, unidadeColheita: "MÇ" },
@@ -31,7 +31,7 @@ export const DEFAULT_CROPS: Crop[] = [
   { nome: "Rabanete", cientifico: "Raphanus sativus", dias: 25, duracao: 15, unidadeColheita: "MÇ" },
   { nome: "Rúcula", cientifico: "Eruca sativa", dias: 35, duracao: 25, unidadeColheita: "MÇ" },
   { nome: "Salsa", cientifico: "Petroselinum crispum", dias: 60, duracao: 100, unidadeColheita: "MÇ" },
-  { nome: "Tomate Lili", cientifico: "Solanum lycopersicum", dias: 100, duracao: 90, unidadeColheita: "kg" },
+  { nome: "Tomate Lili", cientifico: "Solanum lycopersicum", dias: 100, duracao: 90, unidadeColheita: "KG" },
 ];
 
 export async function seedDatabaseIfEmpty() {

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { hojeLocal, statusCalculado } from "../lib/producao";
+import { hojeLocal, statusCalculado, totaisPorUnidade, padronizarUnidades } from "../lib/producao";
+import { usePermissions } from "../lib/permissions";
 import { collection, getDocs, query, orderBy, limit, doc, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Purchase, Planting, Harvest, WeatherDay, SystemMetadata, LicenseRecord } from "../types";
+import { Purchase, Planting, Harvest, WeatherDay, SystemMetadata, LicenseRecord, Crop } from "../types";
 import { 
   Calendar, 
   Package, 
@@ -71,6 +72,8 @@ export default function Dashboard({ onChangeTab, onNotify }: DashboardProps) {
 
   // Bento Grid custom statistics
   const [activeLotesCount, setActiveLotesCount] = useState<number>(0);
+  const [allCrops, setAllCrops] = useState<Crop[]>([]);
+  const { canEdit } = usePermissions();
 
   useEffect(() => {
     fetchDashboardData();
@@ -109,7 +112,12 @@ export default function Dashboard({ onChangeTab, onNotify }: DashboardProps) {
       const activeLotes = plantingsList.filter(p => p.status !== "Finalizado");
       setActiveLotesCount(activeLotes.length);
 
-      // 3. Harvests List
+      // 3. Harvests List (Admin/Editor: acerta antes a grafia das unidades)
+      if (canEdit) {
+        try { await padronizarUnidades(); } catch (e) { console.warn("Padronizar unidades:", e); }
+      }
+      const cropsSnapshot = await getDocs(collection(db, "crops"));
+      setAllCrops(cropsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Crop)));
       const allHarvestsSnapshot = await getDocs(harvestsCol);
       const harvestsList = allHarvestsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Harvest));
       setAllHarvests(harvestsList);
@@ -212,6 +220,7 @@ export default function Dashboard({ onChangeTab, onNotify }: DashboardProps) {
   });
 
   const totalColhido = filteredHarvests.reduce((sum, h) => sum + (parseFloat(String(h.qtd)) || 0), 0);
+  const totaisUnidade = totaisPorUnidade(filteredHarvests, allCrops);
 
   const harvestCounts: { [key: string]: number } = {};
   filteredHarvests.forEach(h => {
@@ -373,7 +382,16 @@ export default function Dashboard({ onChangeTab, onNotify }: DashboardProps) {
             <span className="text-3xl font-black text-slate-800">{totalColhido.toLocaleString()}</span>
             <span className="text-emerald-600 text-sm font-bold">Qtd</span>
           </div>
-          <span className="text-slate-400 text-[10px] mt-1">Soma de todas as colheitas registradas</span>
+          {totaisUnidade.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {totaisUnidade.map(t => (
+                <span key={t.unidade} className="px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] font-bold font-mono">
+                  {t.qtd.toLocaleString("pt-BR")} {t.unidade}
+                </span>
+              ))}
+            </div>
+          )}
+          <span className="text-slate-400 text-[10px] mt-1.5">Soma de todas as colheitas registradas, e o total por unidade</span>
         </div>
 
         {/* KPI 2: Lotes Ativos - col-span-3 (Emerald highlight) */}

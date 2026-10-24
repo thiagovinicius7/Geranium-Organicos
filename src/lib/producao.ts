@@ -6,7 +6,7 @@
  * falta colher e gravar colheitas. Mudou uma regra? Mude aqui e as telas
  * acompanham juntas.
  */
-import { doc, collection, writeBatch, increment, updateDoc } from "firebase/firestore";
+import { doc, collection, writeBatch, increment, updateDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { launchStamp } from "./permissions";
 import { Crop, Harvest, Planting, Purchase } from "../types";
@@ -70,8 +70,69 @@ export function buscarCultura(crops: Crop[], cultura: string): Crop | undefined 
   return crops.find(c => c.nome.toLowerCase().trim() === alvo);
 }
 
+/**
+ * Grafia única das unidades: "kg", "Kg", "quilo" → "KG"; "un", "unid" → "UN";
+ * "maço", "mc" → "MÇ". As outras ficam em maiúsculas. "m²" e "g" ficam como estão.
+ */
+export function normalizarUnidade(unidade?: string | null): string {
+  const u = (unidade || "").trim();
+  if (!u) return "";
+  const k = u.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\.$/, "");
+  if (["kg", "kgs", "quilo", "quilos", "quilograma", "quilogramas"].includes(k)) return "KG";
+  if (["un", "und", "unid", "unidade", "unidades", "pe", "pes"].includes(k)) return "UN";
+  if (["mc", "maco", "macos", "mç"].includes(k) || u.toUpperCase() === "MÇ") return "MÇ";
+  if (["bj", "bandeja", "bandejas"].includes(k)) return "BJ";
+  if (["cx", "caixa", "caixas"].includes(k)) return "CX";
+  if (["pct", "pacote", "pacotes"].includes(k)) return "PCT";
+  if (["dz", "duzia", "duzias"].includes(k)) return "DZ";
+  if (k === "g" || k === "m2" || u === "m²") return u === "m2" ? "m²" : u;
+  return u.toUpperCase();
+}
+
 export function unidadeColheita(crops: Crop[], cultura: string): string {
-  return buscarCultura(crops, cultura)?.unidadeColheita || "kg";
+  return normalizarUnidade(buscarCultura(crops, cultura)?.unidadeColheita) || "KG";
+}
+
+/** Total colhido por unidade, ex.: [{unidade:"UN", qtd:217}, {unidade:"KG", qtd:69}]. */
+export function totaisPorUnidade(harvests: Harvest[], crops: Crop[]): { unidade: string; qtd: number }[] {
+  const t = new Map<string, number>();
+  for (const h of harvests) {
+    const u = normalizarUnidade(h.unidade) || unidadeColheita(crops, h.cultura);
+    t.set(u, (t.get(u) || 0) + (parseFloat(String(h.qtd)) || 0));
+  }
+  return Array.from(t, ([unidade, qtd]) => ({ unidade, qtd })).sort((a, b) => b.qtd - a.qtd);
+}
+
+let unidadesPadronizadas = false;
+
+/**
+ * Uma vez por sessão (Admin/Editor): grava a grafia padrão nas culturas e
+ * colheitas que ainda usam outra (ex.: "kg" → "KG"). Só toca no que mudou.
+ */
+export async function padronizarUnidades(): Promise<number> {
+  if (unidadesPadronizadas) return 0;
+  unidadesPadronizadas = true;
+  const [cropsSnap, harvestsSnap] = await Promise.all([
+    getDocs(collection(db, "crops")),
+    getDocs(collection(db, "harvests"))
+  ]);
+  const mudar: { col: string; id: string; campo: string; valor: string }[] = [];
+  cropsSnap.docs.forEach(d => {
+    const atual = d.data().unidadeColheita;
+    const nova = normalizarUnidade(atual);
+    if (atual && nova && atual !== nova) mudar.push({ col: "crops", id: d.id, campo: "unidadeColheita", valor: nova });
+  });
+  harvestsSnap.docs.forEach(d => {
+    const atual = d.data().unidade;
+    const nova = normalizarUnidade(atual);
+    if (atual && nova && atual !== nova) mudar.push({ col: "harvests", id: d.id, campo: "unidade", valor: nova });
+  });
+  for (let i = 0; i < mudar.length; i += 400) {
+    const batch = writeBatch(db);
+    mudar.slice(i, i + 400).forEach(m => batch.update(doc(db, m.col, m.id), { [m.campo]: m.valor }));
+    await batch.commit();
+  }
+  return mudar.length;
 }
 
 function ehUnidade(unidade: string): boolean {

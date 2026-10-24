@@ -136,6 +136,20 @@ def br(iso):
     return f"{d}/{m}/{y}"
 
 
+def unid(u):
+    """Mesma grafia do app (normalizarUnidade): kg → KG, maço → MÇ etc."""
+    u = str(u or "").strip()
+    k = norm(u)
+    mapa = {"kg": "KG", "kgs": "KG", "quilo": "KG", "quilos": "KG", "un": "UN", "und": "UN", "unid": "UN",
+            "unidade": "UN", "unidades": "UN", "mc": "MÇ", "maco": "MÇ", "bj": "BJ", "bandeja": "BJ",
+            "cx": "CX", "caixa": "CX", "pct": "PCT", "pacote": "PCT", "dz": "DZ", "duzia": "DZ"}
+    if not u:
+        return "KG"
+    if u in ("g", "m²"):
+        return u
+    return mapa.get(k, u.upper())
+
+
 def chave(cultura, talhao):
     return f"{norm(cultura)}|{chave_talhao(talhao)}"
 
@@ -238,11 +252,11 @@ def montar_plano(q, plantios, crops, harvests):
                      {"parecidas": parecidas})
                 continue
             crop = {"nome": nc["nome"], "dias": int(nc.get("dias") or 0), "duracao": int(nc.get("duracao") or 0),
-                    "unidadeColheita": nc.get("unidadeColheita") or "UN", "cientifico": nc.get("cientifico") or ""}
+                    "unidadeColheita": unid(nc.get("unidadeColheita")), "cientifico": nc.get("cientifico") or ""}
             plano["culturas"].append(crop)
             crop_por_nome[norm(crop["nome"])] = crop
         nome = crop["nome"]
-        unidade = crop.get("unidadeColheita") or "UN"
+        unidade = unid(crop.get("unidadeColheita"))
 
         # 2. Plantio
         mesma = [p for p in abertos if norm(p.get("cultura")) == norm(nome)]
@@ -322,7 +336,7 @@ def montar_plano(q, plantios, crops, harvests):
         if not crop and norm(d["cultura"]) in novos_crop:
             nc = novos_crop[norm(d["cultura"])]
             crop = {"nome": nc["nome"], "dias": int(nc.get("dias") or 0), "duracao": int(nc.get("duracao") or 0),
-                    "unidadeColheita": nc.get("unidadeColheita") or "UN", "cientifico": nc.get("cientifico") or ""}
+                    "unidadeColheita": unid(nc.get("unidadeColheita")), "cientifico": nc.get("cientifico") or ""}
             plano["culturas"].append(crop)
             crop_por_nome[norm(crop["nome"])] = crop
         if not crop:

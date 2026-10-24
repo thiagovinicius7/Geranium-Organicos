@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { hojeLocal } from "../lib/producao";
+import { normalizarUnidade, hojeLocal } from "../lib/producao";
 import { collection, doc, writeBatch, setDoc, getDocs } from "firebase/firestore";
 import { db, initAuth, googleSignIn, logout, writeDocumentRest, getAccessToken } from "../lib/firebase";
 import { uploadJsonToDrive } from "../lib/googleDrive";
@@ -885,7 +885,7 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
       record.cientifico = record.cientifico ? record.cientifico.trim() : "";
       // Unidade de Colheita
       const unidRaw = record.unidadecolheita || record.unidade_colheita || record.unidadeColheita || record.unidade;
-      record.unidadeColheita = unidRaw ? unidRaw.trim() : "kg";
+      record.unidadeColheita = normalizarUnidade(unidRaw) || "KG";
       // Dias
       const diasNum = parseInt(record.dias);
       record.dias = (isNaN(diasNum) || diasNum < 0) ? 0 : diasNum;

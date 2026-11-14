@@ -6,6 +6,8 @@ Grava do mesmo jeito que o app (src/lib/producao.ts):
   - colheita: documento novo em "harvests" (mesmo idSessao para o quadro todo)
     e, no plantio, totalColhido += qtd (increment no servidor) e status "Colhendo";
   - Mudar ID: plantio antigo vai para "Finalizado" com dataFim e observação;
+  - perdas (chuva, granizo, praga): somadas no campo "perdas" do plantio, com o
+    motivo na observação; opcionalmente encerra o plantio na data do quadro;
   - plantio novo e cultura nova, quando você informar os dados (decisoes);
   - tudo com criadoPor / criadoPorEmail / criadoEm e origem = "quadro".
 
@@ -23,9 +25,11 @@ quadro.json:
                          "quantidade": 300, "tipo": "Muda", "unidade": "Unidades"} ],
     "usar_plantio":   { "Alface Americana|11": "PLAN-260910-AB12" },
     "nao_encerrar":   [ "PLAN-260801-XY34" ],
-    "ignorar":        [ "Couve|11" ]
+    "ignorar":        [ "Couve|11" ],
+    "perdas":         [ {"plantio": "PLAN-260915-91SD", "qtd": 274, "motivo": "chuva", "encerrar": true} ]
   }
 }
+Quadro só de perdas: "itens": [].
 Perene sem talhão no quadro: talhao "Sítio". Perene novo: tipo "Perene" (entra em colheita).
 
 Login: variáveis GERANIUM_EMAIL e GERANIUM_SENHA (nunca gravadas em arquivo).
@@ -202,7 +206,7 @@ def montar_plano(q, plantios, crops, harvests):
     abertos = [p for p in plantios if p.get("status") != "Finalizado"]
 
     plano = {"data": data, "culturas": [], "compras": [], "plantios": [], "encerrar": [], "colheitas": [],
-             "baixas": [], "pendencias": []}
+             "baixas": [], "perdas": [], "pendencias": []}
 
     # Compras (entrada de mudas/sementes). Cada plantio pode apontar para uma compra pela "chave".
     compras = {}
@@ -365,6 +369,43 @@ def montar_plano(q, plantios, crops, harvests):
     # Plantio que ainda está sendo colhido neste quadro não é encerrado
     colhidos = {c["idPlantio"] for c in plano["colheitas"]}
     plano["encerrar"] = [e for e in plano["encerrar"] if e["id"] not in colhidos]
+
+    # Perdas: somam no campo "perdas"; com "encerrar", o plantio é finalizado na data do quadro.
+    por_id = {p.get("id"): p for p in plantios}
+    for d in (dec.get("perdas") or []):
+        p, qtd = por_id.get(d.get("plantio")), d.get("qtd")
+        item = {"cultura": (p or {}).get("cultura"), "talhao": (p or {}).get("talhao")}
+        if not p:
+            pend("perda_sem_plantio", item, f"Plantio {d.get('plantio')} não encontrado para lançar perda.")
+            continue
+        if not (isinstance(qtd, (int, float)) and qtd > 0):
+            pend("perda_invalida", item, f"Perda de {p.get('id')} precisa ser um número maior que zero.")
+            continue
+        total = (p.get("perdas") or 0) + qtd
+        if (p.get("quantidade") or 0) > 0 and total > p["quantidade"]:
+            pend("perda_maior_que_plantio", item,
+                 f"Perdas de {p.get('id')} somariam {total}, mais que o plantado ({p['quantidade']}).")
+            continue
+        motivo = (d.get("motivo") or "").strip()
+        nota = f"Perda de {qtd:g} em {br(data)}" + (f" por {motivo}" if motivo else "") + "."
+        e = next((x for x in plano["encerrar"] if x["id"] == p.get("id")), None)
+        if e:                                   # já sai pelo Mudar ID: junta a perda
+            e["obs"] = f"{e['obs']} {nota}"
+            e["perdas"] = e.get("perdas", 0) + qtd
+        elif d.get("encerrar") and p.get("status") != "Finalizado":
+            if p.get("id") in colhidos:
+                pend("perda_invalida", item, f"{p.get('id')} tem colheita neste quadro; não dá para encerrar.")
+                continue
+            plano["encerrar"].append({"_docId": p["_docId"], "id": p.get("id"), "cultura": p.get("cultura"),
+                                      "talhao": p.get("talhao"), "dataFim": data, "novo": None, "perdas": qtd,
+                                      "obs": " ".join(x for x in [(p.get("obs") or "").strip(),
+                                                                  f"Colheita encerrada em {br(data)}.", nota] if x)})
+        else:
+            aberto = p.get("status") != "Finalizado"
+            plano["perdas"].append({"_docId": p["_docId"], "id": p.get("id"), "cultura": p.get("cultura"),
+                                    "talhao": p.get("talhao"), "qtd": qtd, "total": total,
+                                    "obs": " ".join(x for x in [(p.get("obs") or "").strip(), nota] if x)
+                                    if aberto else None})
     return plano
 
 
@@ -386,7 +427,13 @@ def imprimir(plano):
     if plano["encerrar"]:
         print("MUDAR ID (encerrar colheita)")
         for e in plano["encerrar"]:
-            print(f"  × {e['id']}  {e['cultura']}  talhão {e['talhao']}  → passa para {e['novo']}")
+            fim = f"→ passa para {e['novo']}" if e.get("novo") else "→ encerrado"
+            perda = f"  (perda {e['perdas']:g})" if e.get("perdas") else ""
+            print(f"  × {e['id']}  {e['cultura']}  talhão {e['talhao']}  {fim}{perda}")
+    if plano["perdas"]:
+        print("PERDAS")
+        for d in plano["perdas"]:
+            print(f"  - {d['id']}  {d['cultura']}  talhão {d['talhao']}  +{d['qtd']:g} (total {d['total']:g})")
     print(f"COLHEITAS ({len(plano['colheitas'])})")
     for c in plano["colheitas"]:
         print(f"  {c['cultura']:<24} talhão {str(c['talhao']):<6} {c['qtd']:>6} {c['unidade']:<4} → {c['idPlantio']}")
@@ -435,10 +482,18 @@ def gravar(plano, token, uid, email):
         w2.append({"update": {"name": compra_doc[b["id"]], "fields": campos_fs({"saldo": b["saldo"], "status": b["status"]})},
                    "updateMask": {"fieldPaths": ["saldo", "status"]}, "currentDocument": {"exists": True}})
     for e in plano["encerrar"]:
-        w2.append({"update": {"name": f"{ROOT}/plantings/{e['_docId']}",
-                              "fields": campos_fs({"status": "Finalizado", "dataFim": e["dataFim"], "obs": e["obs"]})},
-                   "updateMask": {"fieldPaths": ["status", "dataFim", "obs"]},
-                   "currentDocument": {"exists": True}})
+        w = {"update": {"name": f"{ROOT}/plantings/{e['_docId']}",
+                        "fields": campos_fs({"status": "Finalizado", "dataFim": e["dataFim"], "obs": e["obs"]})},
+             "updateMask": {"fieldPaths": ["status", "dataFim", "obs"]},
+             "currentDocument": {"exists": True}}
+        if e.get("perdas"):
+            w["updateTransforms"] = [{"fieldPath": "perdas", "increment": para_fs(e["perdas"])}]
+        w2.append(w)
+    for d in plano["perdas"]:
+        campos = {"obs": d["obs"]} if d["obs"] is not None else {}
+        w2.append({"update": {"name": f"{ROOT}/plantings/{d['_docId']}", "fields": campos_fs(campos)},
+                   "updateMask": {"fieldPaths": list(campos)}, "currentDocument": {"exists": True},
+                   "updateTransforms": [{"fieldPath": "perdas", "increment": para_fs(d["qtd"])}]})
     for c in plano["colheitas"]:
         did = c["_docId"] or novos_doc[c["idPlantio"]]
         h = {"idSessao": sessao, "idPlantio": c["idPlantio"], "data": plano["data"], "cultura": c["cultura"],
@@ -479,11 +534,12 @@ def main():
         return
     if plano["pendencias"]:
         sys.exit("\nHá pendências. Nada foi gravado.")
-    if not (plano["colheitas"] or plano["plantios"] or plano["culturas"] or plano["compras"]):
+    if not (plano["colheitas"] or plano["plantios"] or plano["culturas"] or plano["compras"]
+            or plano["perdas"] or plano["encerrar"]):
         sys.exit("\nNada para gravar.")
     sessao = gravar(plano, token, uid, email)
     print(f"\nGRAVADO: sessão {sessao} — {len(plano['colheitas'])} colheitas, {len(plano['plantios'])} plantios novos,"
-          f" {len(plano['culturas'])} culturas novas, {len(plano['compras'])} compras, {len(plano['encerrar'])} Mudar ID.")
+          f" {len(plano['culturas'])} culturas novas, {len(plano['compras'])} compras, {len(plano['encerrar'])} Mudar ID, {len(plano['perdas'])} perdas.")
 
 
 if __name__ == "__main__":

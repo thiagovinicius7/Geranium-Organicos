@@ -7,8 +7,9 @@ rules_version = '2';
 //   user      Editor: lê e altera todos os dados da produção.
 //   lancador  Lançamentos: lê tudo, registra plantios, colheitas e compras,
 //             e corrige ou apaga só as próprias colheitas nas primeiras 12 horas.
-//             Cadastra cultura nova e encerra a colheita de um plantio
-//             (Mudar ID). Não altera culturas existentes, licenças nem
+//             Cadastra cultura nova, encerra a colheita de um plantio
+//             (Mudar ID) e registra perdas (só aumenta). Não altera culturas
+//             existentes, licenças nem
 //             configurações, e não apaga plantios, compras ou culturas.
 //
 // Domínios liberados e o modo aberto dão perfil Editor. Um e-mail cadastrado
@@ -145,11 +146,34 @@ service cloud.firestore {
             || request.resource.data.status == 'Colhendo');
     }
 
+    // Perdas (granizo, chuva, praga): número, só aumenta e não passa do
+    // que foi plantado (quando o plantio tem quantidade).
+    function validLoss() {
+      return !changed().hasAny(['perdas'])
+        || (request.resource.data.perdas is number
+            && request.resource.data.perdas >= resource.data.get('perdas', 0)
+            && (!(resource.data.get('quantidade', 0) is number)
+                || resource.data.get('quantidade', 0) <= 0
+                || request.resource.data.perdas <= resource.data.get('quantidade', 0)));
+    }
+
+    // Registra perda num plantio, aberto ou já finalizado. No aberto pode
+    // completar a observação junto.
+    function launcherRecordsLoss() {
+      return isLauncher()
+        && changed().hasAny(['perdas'])
+        && (changed().hasOnly(['perdas'])
+            || (changed().hasOnly(['perdas', 'obs'])
+                && resource.data.get('status', '') != 'Finalizado'))
+        && validLoss();
+    }
+
     // Mudar ID: encerra a colheita de um plantio aberto. Só muda status,
-    // data de fim e observação; não reabre nem apaga.
+    // data de fim, observação e perdas; não reabre nem apaga.
     function launcherClosesPlanting() {
       return isLauncher()
-        && changed().hasOnly(['status', 'dataFim', 'obs'])
+        && changed().hasOnly(['status', 'dataFim', 'obs', 'perdas'])
+        && validLoss()
         && resource.data.get('status', '') != 'Finalizado'
         && request.resource.data.status == 'Finalizado'
         && request.resource.data.dataFim is string
@@ -202,7 +226,8 @@ service cloud.firestore {
     match /plantings/{id} {
       allow read: if isMember();
       allow create: if canEdit() || launcherCreatesPlanting();
-      allow update: if canEdit() || launcherUpdatesPlanting() || launcherClosesPlanting();
+      allow update: if canEdit() || launcherUpdatesPlanting() || launcherClosesPlanting()
+                   || launcherRecordsLoss();
       allow delete: if canEdit();
     }
 

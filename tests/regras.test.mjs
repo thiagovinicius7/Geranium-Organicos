@@ -25,6 +25,8 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, "plantings", "p1"), { status: "No campo", totalColhido: 0, cultura: "Alface" });
   await setDoc(doc(db, "plantings", "p2"), { status: "No campo", totalColhido: 0, cultura: "Alface" });
   await setDoc(doc(db, "plantings", "pfim"), { status: "Finalizado", totalColhido: 5 });
+  await setDoc(doc(db, "plantings", "pperda"), { status: "Finalizado", totalColhido: 126, quantidade: 400, perdas: 0 });
+  await setDoc(doc(db, "plantings", "pab"), { status: "Colhendo", totalColhido: 10, quantidade: 200, obs: "x" });
   await setDoc(doc(db, "purchases", "k1"), { status: "Ativo", saldo: 10, quantidade: 10 });
   await setDoc(doc(db, "harvests", "hmine"), { qtd: 3, criadoPor: "lanc", criadoEm: hoursAgo(1) });
   await setDoc(doc(db, "harvests", "hold"), { qtd: 3, criadoPor: "lanc", criadoEm: hoursAgo(13) });
@@ -111,6 +113,14 @@ await t("lanc faz Mudar ID (encerra um, inicia outro)", true, () => {
   b.update(doc(L, "plantings", "p2"), { status: "Colhendo" });
   return b.commit();
 });
+await t("lanc encerra plantio com perda", true, () => updateDoc(doc(L, "plantings", "pab"), { status: "Finalizado", dataFim: "2026-11-13", obs: "Perda por chuva.", perdas: 50 }));
+await t("lanc registra perda em plantio finalizado", true, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: 274 }));
+await t("lanc soma perda com increment", true, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: increment(6) }));
+await t("lanc NÃO diminui perdas", false, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: 10 }));
+await t("lanc NÃO passa perdas do plantado", false, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: 401 }));
+await t("lanc NÃO grava perda em texto", false, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: "300" }));
+await t("lanc NÃO muda obs de plantio finalizado junto com perda", false, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: 290, obs: "x" }));
+await t("lanc NÃO muda outro campo junto com perda", false, () => updateDoc(doc(L, "plantings", "pperda"), { perdas: 290, quantidade: 500 }));
 
 // Editor
 await t("editor altera cultura", true, () => updateDoc(doc(E, "crops", "c1"), { nome: "Alface Crespa" }));

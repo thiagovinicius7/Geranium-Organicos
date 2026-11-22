@@ -233,7 +233,24 @@ service cloud.firestore {
         && d.enviadoEm == request.time;
     }
 
+    // Link fixo da Bioloja (lojas/{token}): aponta para a sobra mais recente.
+    // O token é aleatório e só existe no banco e no link da loja.
+    function launcherPointsShop() {
+      return isLauncher()
+        && request.resource.data.keys().hasOnly(['sobraId', 'feira', 'atualizadoEm'])
+        && request.resource.data.sobraId is string
+        && exists(/databases/$(database)/documents/sobras/$(request.resource.data.sobraId))
+        && request.resource.data.atualizadoEm == request.time;
+    }
+
     // ---------- Coleções ----------
+
+    match /lojas/{token} {
+      allow get: if true;
+      allow list: if isMember();
+      allow create, update: if canEdit() || launcherPointsShop();
+      allow delete: if canEdit();
+    }
 
     match /sobras/{id} {
       allow get: if true;

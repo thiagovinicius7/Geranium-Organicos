@@ -16,6 +16,7 @@ Uso:
   python3 sobra.py gerar COL-261121-AB12 [COL-…]     mostra o formulário (não grava)
   python3 sobra.py gerar COL-261121-AB12 --gravar    grava e imprime o link da loja
   python3 sobra.py listar                            formulários recentes e status
+  python3 sobra.py link                              link fixo da Bioloja (cria se não existir)
   python3 sobra.py conferir <id>                     conta do vendido e incoerências
   python3 sobra.py conferir <id> --gravar [--xepa "Banana Prata"] [--fica "Couve"]
         marca como conferida; --xepa/--fica trocam o destino da sobra de um item
@@ -41,6 +42,7 @@ def campos_fs(d):
     return {k: para_fs(v) for k, v in d.items()}
 
 LINK = "https://thiagovinicius7.github.io/Geranium-Organicos/#/sobra/"
+LINK_FIXO = "https://thiagovinicius7.github.io/Geranium-Organicos/#/loja/"
 DIAS_FEIRA = {1, 2, 4, 5}  # date.weekday(): ter, qua, sex, sáb
 DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
 
@@ -92,6 +94,19 @@ def ordenar(itens):
 def ultima_conferida(sobras, antes_de):
     conf = [s for s in sobras if s.get("status") == "conferida" and s.get("feira", "") < antes_de]
     return max(conf, key=lambda s: s["feira"]) if conf else None
+
+
+# ---------------------------------------------------------------- link fixo
+
+def apontar_loja(did, feira, token):
+    """O link fixo da Bioloja (lojas/<token>) passa a abrir esta sobra.
+    O token só existe no banco; se ainda não houver, cria um."""
+    lojas = listar("lojas", token)
+    tok = lojas[0]["_docId"] if lojas else rand(24, string.ascii_letters + string.digits)
+    w = {"update": {"name": f"{ROOT}/lojas/{tok}", "fields": campos_fs({"sobraId": did, "feira": feira})},
+         "updateTransforms": [{"fieldPath": "atualizadoEm", "setToServerValue": "REQUEST_TIME"}]}
+    http("POST", f"{BASE}:commit", {"writes": [w]}, token=token)
+    return tok
 
 
 # ---------------------------------------------------------------- gerar
@@ -197,7 +212,9 @@ def cmd_gerar(sessoes, gravar, token, uid, email):
         w = {"update": {"name": doc, "fields": campos_fs(dados)}, "currentDocument": {"exists": False},
              "updateTransforms": [{"fieldPath": "criadoEm", "setToServerValue": "REQUEST_TIME"}]}
     http("POST", f"{BASE}:commit", {"writes": [w]}, token=token)
-    print(f"\nGRAVADO. Link da loja:\n{LINK}{did}")
+    tok = apontar_loja(did, feira, token)
+    print(f"\nGRAVADO. O link fixo da Bioloja já abre esta sobra:\n{LINK_FIXO}{tok}")
+    print(f"(link só desta sobra: {LINK}{did})")
 
 
 # ---------------------------------------------------------------- conferir
@@ -257,6 +274,19 @@ def cmd_listar(token):
               f"{s.get('quemContou', ''):15} {LINK}{s['_docId']}")
 
 
+def cmd_link(token):
+    lojas = listar("lojas", token)
+    if lojas:
+        l = lojas[0]
+        print(f"Link fixo da Bioloja (abre a sobra de {feira_extensa(l['feira'])}):\n{LINK_FIXO}{l['_docId']}")
+        return
+    sobras = sorted(listar("sobras", token), key=lambda x: x.get("feira", ""))
+    if not sobras:
+        sys.exit("Ainda não há nenhuma sobra: gere a primeira com um quadro.")
+    tok = apontar_loja(sobras[-1]["_docId"], sobras[-1]["feira"], token)
+    print(f"Link fixo criado (abre a sobra de {feira_extensa(sobras[-1]['feira'])}):\n{LINK_FIXO}{tok}")
+
+
 def main():
     args = sys.argv[1:]
     gravar = "--gravar" in args
@@ -268,7 +298,7 @@ def main():
         if not a.startswith("--"):
             pos.append(a)
         i += 1
-    if not pos or pos[0] not in ("gerar", "conferir", "listar"):
+    if not pos or pos[0] not in ("gerar", "conferir", "listar", "link"):
         sys.exit(__doc__)
     token, uid, email = login(os.environ["GERANIUM_EMAIL"], os.environ["GERANIUM_SENHA"])
     if pos[0] == "gerar" and len(pos) >= 2:
@@ -277,6 +307,8 @@ def main():
         cmd_conferir(pos[1], gravar, xepa, fica, token, uid)
     elif pos[0] == "listar":
         cmd_listar(token)
+    elif pos[0] == "link":
+        cmd_link(token)
     else:
         sys.exit(__doc__)
 

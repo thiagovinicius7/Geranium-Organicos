@@ -179,7 +179,69 @@ service cloud.firestore {
         && request.resource.data.saldo <= resource.data.get('saldo', 0);
     }
 
+    // ---------- Sobra da loja ----------
+    //
+    // Cada quadro de colheita gera um formulário de sobra (sobras/{id}) com a
+    // lista daquele quadro. O id é aleatório e vai no link mandado à loja,
+    // que abre SEM login: quem tem o link só lê aquele formulário e só
+    // preenche as respostas. Depois o Lançamentos confere.
+
+    function sobraItensOk(data) {
+      return data.itens is list && data.itens.size() > 0 && data.itens.size() <= 80
+        && data.feira is string && data.feira.size() == 10
+        && data.sessoes is list;
+    }
+
+    // Formulário novo: aberto, sem respostas.
+    function launcherCreatesSobra() {
+      return isLauncher() && stampedNow()
+        && request.resource.data.status == 'aberta'
+        && sobraItensOk(request.resource.data)
+        && !('respostas' in request.resource.data);
+    }
+
+    // Outro quadro para a mesma feira: a lista cresce enquanto ninguém respondeu.
+    function launcherExtendsSobra() {
+      return isLauncher()
+        && resource.data.get('status', '') == 'aberta'
+        && changed().hasOnly(['itens', 'sessoes'])
+        && sobraItensOk(request.resource.data);
+    }
+
+    // Conferência: só depois de a loja enviar, e não volta atrás.
+    function launcherChecksSobra() {
+      return isLauncher()
+        && resource.data.get('status', '') == 'enviada'
+        && changed().hasOnly(['status', 'resumo', 'conferidoPor', 'conferidoEm'])
+        && request.resource.data.status == 'conferida'
+        && request.resource.data.conferidoPor == request.auth.uid
+        && request.resource.data.conferidoEm == request.time
+        && request.resource.data.resumo is list;
+    }
+
+    // A loja (sem login) envia ou corrige as respostas até a conferência.
+    // Uma resposta por item da lista, na mesma ordem.
+    function shopSubmitsSobra() {
+      let d = request.resource.data;
+      return resource.data.get('status', '') in ['aberta', 'enviada']
+        && changed().hasOnly(['respostas', 'quemContou', 'obs', 'enviadoEm', 'status'])
+        && d.status == 'enviada'
+        && d.respostas is list
+        && d.respostas.size() == resource.data.itens.size()
+        && d.quemContou is string && d.quemContou.size() > 0 && d.quemContou.size() <= 60
+        && d.get('obs', '') is string && d.get('obs', '').size() <= 500
+        && d.enviadoEm == request.time;
+    }
+
     // ---------- Coleções ----------
+
+    match /sobras/{id} {
+      allow get: if true;
+      allow list: if isMember();
+      allow create: if canEdit() || launcherCreatesSobra();
+      allow update: if canEdit() || launcherExtendsSobra() || launcherChecksSobra() || shopSubmitsSobra();
+      allow delete: if canEdit();
+    }
 
     match /crops/{id} {
       allow read: if isMember();

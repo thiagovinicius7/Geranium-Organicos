@@ -32,6 +32,7 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, "harvests", "hlegacy"), { qtd: 3 });
   const itens = [{ cultura: "Banana Prata", unidade: "KG" }, { cultura: "Couve", unidade: "MÇ" }];
   await setDoc(doc(db, "sobras", "sAberta"), { status: "aberta", feira: "2026-11-24", sessoes: ["COL-1"], itens });
+  await setDoc(doc(db, "lojas", "tokLoja"), { sobraId: "sAberta", feira: "2026-11-24", atualizadoEm: hoursAgo(1) });
   await setDoc(doc(db, "sobras", "sAberta2"), { status: "aberta", feira: "2026-11-27", sessoes: ["COL-3"], itens });
   await setDoc(doc(db, "sobras", "sEnviada"), { status: "enviada", feira: "2026-11-21", sessoes: ["COL-0"], itens,
     respostas: [{ sobrou: 1, perdeu: 0 }, { sobrou: 0, perdeu: 0 }], quemContou: "Ana", enviadoEm: hoursAgo(1) });
@@ -160,6 +161,14 @@ await t("lanc NÃO aumenta lista já respondida", false, () => updateDoc(doc(L, 
 await t("lanc confere a sobra enviada", true, () => updateDoc(doc(L, "sobras", "sEnviada"), { status: "conferida", resumo: [{ cultura: "Couve" }], conferidoPor: "lanc", conferidoEm: serverTimestamp() }));
 await t("lanc NÃO confere em nome de outro", false, () => updateDoc(doc(L, "sobras", "sAberta"), { status: "conferida", resumo: [], conferidoPor: "outro", conferidoEm: serverTimestamp() }));
 await t("lanc NÃO apaga formulário", false, () => deleteDoc(doc(L, "sobras", "sConferida")));
+await t("loja abre o link fixo", true, () => getDoc(doc(N, "lojas", "tokLoja")));
+await t("loja NÃO lista links fixos", false, () => getDocs(collection(N, "lojas")));
+await t("loja NÃO muda o link fixo", false, () => updateDoc(doc(N, "lojas", "tokLoja"), { sobraId: "sConferida" }));
+await t("lanc aponta o link fixo para a sobra nova", true, () => setDoc(doc(L, "lojas", "tokLoja"), { sobraId: "sAberta2", feira: "2026-11-27", atualizadoEm: serverTimestamp() }));
+await t("lanc cria o link fixo", true, () => setDoc(doc(L, "lojas", "tokNovo"), { sobraId: "sAberta2", feira: "2026-11-27", atualizadoEm: serverTimestamp() }));
+await t("lanc NÃO aponta para sobra inexistente", false, () => setDoc(doc(L, "lojas", "tokLoja"), { sobraId: "naoExiste", feira: "2026-11-27", atualizadoEm: serverTimestamp() }));
+await t("lanc NÃO põe outros campos no link fixo", false, () => setDoc(doc(L, "lojas", "tokLoja"), { sobraId: "sAberta2", feira: "2026-11-27", atualizadoEm: serverTimestamp(), x: 1 }));
+await t("lanc NÃO apaga o link fixo", false, () => deleteDoc(doc(L, "lojas", "tokLoja")));
 await t("estranho logado NÃO lista os formulários", false, () => getDocs(collection(S, "sobras")));
 
 console.log(`\n${pass} ok, ${fail} falhas`);

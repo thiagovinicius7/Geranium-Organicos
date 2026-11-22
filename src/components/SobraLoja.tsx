@@ -33,7 +33,7 @@ function apagarRascunho(id: string) {
 
 const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
-export default function SobraLoja({ id }: { id: string }) {
+export default function SobraLoja({ id, fixo = false }: { id: string; fixo?: boolean }) {
   const [estado, setEstado] = useState<Estado>("carregando");
   const [feira, setFeira] = useState("");
   const [itens, setItens] = useState<SobraItem[]>([]);
@@ -166,7 +166,17 @@ export default function SobraLoja({ id }: { id: string }) {
                 ? "Esta sobra já foi conferida e não pode mais ser alterada."
                 : `Contagem de ${quem || "—"} recebida.`}
             </p>
+            {fixo && (
+              <p className="text-base text-emerald-900 mt-2">
+                Quando chegar o próximo quadro de colheita, a lista nova aparece aqui neste mesmo link.
+              </p>
+            )}
           </div>
+          {fixo && (
+            <button onClick={() => window.location.reload()} className="w-full rounded-xl bg-emerald-700 text-white text-lg font-bold py-4">
+              Ver se já chegou a lista nova
+            </button>
+          )}
           {estado === "enviado" && (
             <button onClick={() => setEstado("aberto")} className="w-full rounded-xl border-2 border-emerald-700 text-emerald-800 text-lg font-bold py-4">
               Corrigir algum número

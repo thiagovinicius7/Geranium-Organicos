@@ -30,6 +30,12 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, "harvests", "hold"), { qtd: 3, criadoPor: "lanc", criadoEm: hoursAgo(13) });
   await setDoc(doc(db, "harvests", "hother"), { qtd: 3, criadoPor: "outro", criadoEm: hoursAgo(1) });
   await setDoc(doc(db, "harvests", "hlegacy"), { qtd: 3 });
+  const itens = [{ cultura: "Banana Prata", unidade: "KG" }, { cultura: "Couve", unidade: "MÇ" }];
+  await setDoc(doc(db, "sobras", "sAberta"), { status: "aberta", feira: "2026-11-24", sessoes: ["COL-1"], itens });
+  await setDoc(doc(db, "sobras", "sAberta2"), { status: "aberta", feira: "2026-11-27", sessoes: ["COL-3"], itens });
+  await setDoc(doc(db, "sobras", "sEnviada"), { status: "enviada", feira: "2026-11-21", sessoes: ["COL-0"], itens,
+    respostas: [{ sobrou: 1, perdeu: 0 }, { sobrou: 0, perdeu: 0 }], quemContou: "Ana", enviadoEm: hoursAgo(1) });
+  await setDoc(doc(db, "sobras", "sConferida"), { status: "conferida", feira: "2026-11-20", sessoes: [], itens, resumo: [] });
 });
 
 const as = (uid, email) => env.authenticatedContext(uid, { email, email_verified: true }).firestore();
@@ -130,6 +136,31 @@ await t("estranho NÃO lê culturas", false, () => getDocs(collection(S, "crops"
 await t("estranho lê só o próprio cadastro (inexistente)", true, () => getDoc(doc(S, "authorized_emails", "estranho_gmail.com")));
 await t("estranho NÃO lê cadastro de outro", false, () => getDoc(doc(S, "authorized_emails", "lanc_x.com")));
 await t("sem login NÃO lê nada", false, () => getDocs(collection(N, "harvests")));
+
+// Sobra da loja (link sem login)
+const resp = { respostas: [{ sobrou: 20, perdeu: 2 }, { sobrou: 3, perdeu: 0 }], quemContou: "Maria", obs: "", enviadoEm: serverTimestamp(), status: "enviada" };
+const novaSobra = { status: "aberta", feira: "2026-11-25", sessoes: ["COL-2"], itens: [{ cultura: "Couve", unidade: "MÇ" }], ...stamp };
+await t("loja (sem login) abre o formulário pelo link", true, () => getDoc(doc(N, "sobras", "sAberta")));
+await t("loja NÃO lista os formulários", false, () => getDocs(collection(N, "sobras")));
+await t("loja envia a sobra", true, () => updateDoc(doc(N, "sobras", "sAberta"), resp));
+await t("loja corrige antes da conferência", true, () => updateDoc(doc(N, "sobras", "sEnviada"), resp));
+await t("loja NÃO responde formulário conferido", false, () => updateDoc(doc(N, "sobras", "sConferida"), resp));
+await t("loja NÃO muda a lista de itens", false, () => updateDoc(doc(N, "sobras", "sEnviada"), { ...resp, itens: [] }));
+await t("loja NÃO manda respostas a menos", false, () => updateDoc(doc(N, "sobras", "sEnviada"), { ...resp, respostas: [{ sobrou: 1, perdeu: 0 }] }));
+await t("loja NÃO envia sem dizer quem contou", false, () => updateDoc(doc(N, "sobras", "sEnviada"), { ...resp, quemContou: "" }));
+await t("loja NÃO marca como conferida", false, () => updateDoc(doc(N, "sobras", "sEnviada"), { ...resp, status: "conferida" }));
+await t("loja NÃO cria formulário", false, () => addDoc(collection(N, "sobras"), { ...novaSobra, criadoPor: null }));
+await t("loja NÃO apaga formulário", false, () => deleteDoc(doc(N, "sobras", "sAberta")));
+await t("lanc lista os formulários", true, () => getDocs(collection(L, "sobras")));
+await t("lanc cria formulário de sobra", true, () => addDoc(collection(L, "sobras"), novaSobra));
+await t("lanc NÃO cria formulário já respondido", false, () => addDoc(collection(L, "sobras"), { ...novaSobra, respostas: [] }));
+await t("lanc NÃO cria formulário sem itens", false, () => addDoc(collection(L, "sobras"), { ...novaSobra, itens: [] }));
+await t("lanc acrescenta outro quadro à lista aberta", true, () => updateDoc(doc(L, "sobras", "sAberta2"), { itens: [...[{ cultura: "Banana Prata", unidade: "KG" }, { cultura: "Couve", unidade: "MÇ" }], { cultura: "Inhame", unidade: "KG" }], sessoes: ["COL-3", "COL-4"] }));
+await t("lanc NÃO aumenta lista já respondida", false, () => updateDoc(doc(L, "sobras", "sEnviada"), { itens: [{ cultura: "X" }], sessoes: ["A"] }));
+await t("lanc confere a sobra enviada", true, () => updateDoc(doc(L, "sobras", "sEnviada"), { status: "conferida", resumo: [{ cultura: "Couve" }], conferidoPor: "lanc", conferidoEm: serverTimestamp() }));
+await t("lanc NÃO confere em nome de outro", false, () => updateDoc(doc(L, "sobras", "sAberta"), { status: "conferida", resumo: [], conferidoPor: "outro", conferidoEm: serverTimestamp() }));
+await t("lanc NÃO apaga formulário", false, () => deleteDoc(doc(L, "sobras", "sConferida")));
+await t("estranho logado NÃO lista os formulários", false, () => getDocs(collection(S, "sobras")));
 
 console.log(`\n${pass} ok, ${fail} falhas`);
 await env.cleanup();

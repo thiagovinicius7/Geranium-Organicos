@@ -15,8 +15,13 @@
  *     se falta, aumenta (até 2× o normal). Mais a margem de segurança.
  *  5. Simula as próximas semanas supondo que as sugestões anteriores foram
  *     plantadas, para dar tempo de encomendar as mudas.
+ *
+ * Compras de muda com saldo e ainda sem plantio (pedido feito, muda a caminho
+ * ou esperando o plantio) contam como plantio previsto: assim a sugestão não
+ * se repete no intervalo entre o pedido e o lançamento do plantio. Quando o
+ * plantio é lançado, o saldo da compra cai e quem conta é o plantio.
  */
-import { Crop, Harvest, Planting } from "../types";
+import { Crop, Harvest, Planting, Purchase } from "../types";
 import {
   buscarCultura, unidadeColheita, calcularHistorico, colheitasDoPlantio, formatarData,
   hojeLocal, somarDias, diasEntre, parseData, normalizarUnidade
@@ -108,7 +113,19 @@ export interface PlanoCultura {
   /** Primeira semana com oferta abaixo de 70% da saída. */
   primeiraFalta: string | null;
   plantiosAbertos: number;
+  /** Compras de muda com saldo, contadas como plantio previsto. */
+  comprasPendentes: CompraPendente[];
   avisos: string[];
+}
+
+export interface CompraPendente {
+  id: string;
+  pedido?: string;
+  data: string;
+  saldo: number;
+  /** Data em que a compra entra no cálculo como plantada. */
+  plantio: string;
+  aguardandoNota: boolean;
 }
 
 export interface ResultadoPlanejamento {
@@ -122,6 +139,19 @@ const DIA = 1;
 const SEMANAS_COBERTURA = 8;
 /** Plantio fora da janela que ainda colhe: quantas semanas a mais, no máximo. */
 const MAX_SEMANAS_ALEM = 4;
+/** Compra sem plantio conta até 14 dias depois do plantio previsto; depois só avisa. */
+const DIAS_COMPRA_PENDENTE = 14;
+/** Sem plantio previsto informado, a compra é plantada 7 dias depois (retira na quinta, planta na semana seguinte). */
+const DIAS_COMPRA_ATE_PLANTIO = 7;
+
+function ehCompraDeMuda(c: Purchase): boolean {
+  return !(c.tipo || "").toLowerCase().includes("semente");
+}
+
+/** Data prevista de plantio de uma compra (AAAA-MM-DD). */
+export function plantioPrevistoDaCompra(c: Purchase): string {
+  return c.plantioPrevisto || somarDias(c.data, DIAS_COMPRA_ATE_PLANTIO);
+}
 
 function arred(n: number, casas = 1): number {
   const f = Math.pow(10, casas);
@@ -172,7 +202,8 @@ export function calcularPlanejamento(
   plantings: Planting[],
   harvests: Harvest[],
   config: ConfigPlanejamento = CONFIG_PADRAO,
-  hoje: string = hojeLocal()
+  hoje: string = hojeLocal(),
+  compras: Purchase[] = []
 ): ResultadoPlanejamento {
   const datas = harvests.map(h => h.data).filter(Boolean).sort();
   const inicioDados = datas[0] || null;
@@ -185,20 +216,23 @@ export function calcularPlanejamento(
   const amanha = somarDias(hoje, 1);
   const historico = calcularHistorico(plantings, inicioDados);
 
-  const porCultura = new Map<string, { nome: string; plantios: Planting[]; colheitas: Harvest[] }>();
+  const porCultura = new Map<string, { nome: string; plantios: Planting[]; colheitas: Harvest[]; compras: Purchase[] }>();
   const reg = (nome: string) => {
     const k = chave(nome);
-    if (!porCultura.has(k)) porCultura.set(k, { nome, plantios: [], colheitas: [] });
+    if (!porCultura.has(k)) porCultura.set(k, { nome, plantios: [], colheitas: [], compras: [] });
     return porCultura.get(k)!;
   };
   crops.forEach(c => reg(c.nome));
   plantings.forEach(p => reg(p.cultura).plantios.push(p));
   harvests.forEach(h => reg(h.cultura).colheitas.push(h));
+  compras
+    .filter(c => c.data && c.cultura && ehCompraDeMuda(c) && (c.status === "Ativo" || !c.status) && (Number(c.saldo) || 0) > 0)
+    .forEach(c => reg(c.cultura).compras.push(c));
 
   const culturas: PlanoCultura[] = [];
   const paraBandejas: ContextoBandeja[] = [];
 
-  porCultura.forEach(({ nome, plantios, colheitas }) => {
+  porCultura.forEach(({ nome, plantios, colheitas, compras: comprasDaCultura }) => {
     const crop = buscarCultura(crops, nome);
     const cfg: PlanejamentoCultura = crop?.planejamento || {};
     if (cfg.ignorar) return;
@@ -245,6 +279,30 @@ export function calcularPlanejamento(
     const horizonte = SEMANAS_COBERTURA + config.semanasPlantio + Math.ceil(((crop.dias || 0) + (crop.duracao || 0)) / 7) + 2;
     const oferta = new Array(horizonte).fill(0);
     const abertos = plantios.filter(p => p.status !== "Finalizado" && p.tipo !== "Perene");
+
+    // Compras de muda com saldo: entram como plantio previsto.
+    const comprasPendentes: CompraPendente[] = [];
+    const virtuais: Planting[] = [];
+    for (const c of [...comprasDaCultura].sort((a, b) => a.data.localeCompare(b.data))) {
+      const previsto = plantioPrevistoDaCompra(c);
+      const saldo = Number(c.saldo) || 0;
+      const ref = c.pedido ? `pedido ${c.pedido}` : c.id;
+      if (diasEntre(previsto, hoje) > DIAS_COMPRA_PENDENTE) {
+        avisos.push(`Compra ${ref} de ${formatarData(c.data).slice(0, 5)} ainda tem ${saldo} mudas sem plantio. Lance o plantio ou zere o saldo; até lá ela não conta no planejamento.`);
+        continue;
+      }
+      // Alinha ao início da semana do plano (semana k = hoje + 7k), como as sugestões.
+      const plantio = previsto > hoje ? somarDias(hoje, 7 * Math.floor(diasEntre(hoje, previsto) / 7)) : hoje;
+      comprasPendentes.push({ id: c.id, pedido: c.pedido, data: c.data, saldo, plantio, aguardandoNota: !!c.aguardandoNota });
+      virtuais.push({
+        id: c.id, idLote: c.id, data: plantio, cultura: c.cultura, tipo: "Muda", talhao: "—",
+        quantidade: saldo, previsao: somarDias(plantio, crop.dias), status: "No campo", totalColhido: 0, unidade: "Unidades"
+      });
+      if (diasEntre(previsto, hoje) > 3) {
+        avisos.push(`Compra ${ref}: plantio previsto para ${formatarData(previsto).slice(0, 5)} ainda não foi lançado (${saldo} mudas).`);
+      }
+    }
+    abertos.push(...virtuais);
     let semQuantidade = 0;
     let estoqueIncerto = false;
     for (const p of abertos) {
@@ -313,8 +371,14 @@ export function calcularPlanejamento(
     const usaBandeja = forma === "Muda" && config.bandeja > 0;
     if (rendimento && rendimento > 0 && !estoqueIncerto && usaBandeja) {
       // Mudas em bandejas: decididas depois, juntas para todas as culturas (agendarBandejas).
+      const comprado = new Array(config.semanasPlantio).fill(0);
+      comprasPendentes.forEach(cp => {
+        const k = Math.floor(diasEntre(hoje, cp.plantio) / 7);
+        if (k >= 0 && k < comprado.length) comprado[k] += cp.saldo;
+      });
       paraBandejas.push({
         plantar,
+        comprado,
         simulada: [...oferta],
         dias: crop.dias,
         duracao: Math.max(7, crop.duracao || 0),
@@ -351,7 +415,7 @@ export function calcularPlanejamento(
       );
     }
 
-    if (!meta && diasComColheita === 0 && abertos.length === 0) return; // sem movimento: fora da lista
+    if (!meta && diasComColheita === 0 && abertos.length === 0 && avisos.length === 0) return; // sem movimento: fora da lista
     if (!meta && saidaSemanal === 0) avisos.push("Sem colheita nas últimas semanas.");
     if (rendimentoOrigem === "unidade") avisos.push("Rendimento de 1 pé por muda até haver plantio finalizado para medir a perda.");
     if (rendimentoOrigem === "referencia") avisos.push("Rendimento de referência da bibliografia: confira no campo; o histórico substitui quando houver plantio completo.");
@@ -378,7 +442,8 @@ export function calcularPlanejamento(
       plantar,
       cobertura,
       primeiraFalta: falta ? falta.inicio : null,
-      plantiosAbertos: abertos.length,
+      plantiosAbertos: abertos.length - virtuais.length,
+      comprasPendentes,
       avisos
     });
   });
@@ -399,6 +464,8 @@ export function calcularPlanejamento(
 
 interface ContextoBandeja {
   plantar: PlanoCultura["plantar"];
+  /** Mudas já compradas para plantar em cada semana (já somadas na oferta). */
+  comprado: number[];
   simulada: number[];
   dias: number;
   duracao: number;
@@ -452,6 +519,12 @@ function agendarBandejas(ctxs: ContextoBandeja[], config: ConfigPlanejamento, ho
   for (let i = 0; i < n; i++) {
     let total = 0;
     for (const c of ctxs) {
+      if ((c.comprado[i] || 0) > 0) {
+        // A bandeja desta semana já foi comprada: conta no rodízio e reinicia a cadência.
+        total += Math.max(1, Math.round(c.comprado[i] / b));
+        vez.set(c, 0);
+        continue;
+      }
       const f = faltaEmBandejas(c, i);
       const v = vez.get(c);
       if (v === null || v === undefined) {

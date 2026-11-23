@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteField } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteField, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Crop, Harvest, Planting } from "../types";
-import { usePermissions } from "../lib/permissions";
-import { formatarData } from "../lib/producao";
+import { Crop, Harvest, Planting, Purchase } from "../types";
+import { usePermissions, launchStamp } from "../lib/permissions";
+import { formatarData, hojeLocal } from "../lib/producao";
 import {
   calcularPlanejamento, textoPedido, CONFIG_PADRAO, ConfigPlanejamento, PlanoCultura, PlanejamentoCultura
 } from "../lib/planejamento";
 import {
   CalendarRange, Copy, Loader2, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight,
-  Settings2, AlertTriangle, Info, Pin
+  Settings2, AlertTriangle, Info, Pin, ShoppingCart, X
 } from "lucide-react";
 
 interface Props {
@@ -48,6 +48,8 @@ export default function Planejamento({ onNotify }: Props) {
   const [crops, setCrops] = useState<Crop[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [registrando, setRegistrando] = useState(false);
   const [config, setConfig] = useState<ConfigPlanejamento>(CONFIG_PADRAO);
   const [loading, setLoading] = useState(true);
   const [semana, setSemana] = useState(0);
@@ -59,12 +61,17 @@ export default function Planejamento({ onNotify }: Props) {
   const carregar = async () => {
     try {
       setLoading(true);
-      const [c, p, h, cfg] = await Promise.all([
+      const [c, p, h, cfg, compras] = await Promise.all([
         getDocs(collection(db, "crops")),
         getDocs(collection(db, "plantings")),
         getDocs(collection(db, "harvests")),
-        getDoc(doc(db, "metadata", "planejamento"))
+        getDoc(doc(db, "metadata", "planejamento")),
+        getDocs(collection(db, "purchases"))
       ]);
+      setPurchases(compras.docs.map(d => {
+        const data = d.data();
+        return { ...data, docId: d.id, id: data.id || d.id } as Purchase;
+      }));
       setCrops(c.docs.map(d => ({ id: d.id, ...d.data() } as Crop)));
       setPlantings(p.docs.map(d => {
         const data = d.data();
@@ -82,7 +89,7 @@ export default function Planejamento({ onNotify }: Props) {
 
   useEffect(() => { carregar(); }, []);
 
-  const resultado = useMemo(() => calcularPlanejamento(crops, plantings, harvests, config), [crops, plantings, harvests, config]);
+  const resultado = useMemo(() => calcularPlanejamento(crops, plantings, harvests, config, hojeLocal(), purchases), [crops, plantings, harvests, config, purchases]);
   const principais = resultado.culturas.filter(c => c.principal);
   const outras = resultado.culturas.filter(c => !c.principal);
   const datasSemanas = principais[0]?.plantar.map(p => p.data) ||
@@ -163,6 +170,11 @@ export default function Planejamento({ onNotify }: Props) {
               {c.fixada && <Pin className="w-3 h-3 text-emerald-600" />}
             </div>
             <div className="text-[10px] text-slate-400 ml-5">{c.plantiosAbertos} plantio{c.plantiosAbertos === 1 ? "" : "s"} no campo</div>
+            {c.comprasPendentes.length > 0 && (
+              <div className="text-[10px] text-indigo-700 font-semibold ml-5">
+                🛒 {fmt(c.comprasPendentes.reduce((s, x) => s + x.saldo, 0), 0)} mudas compradas, ainda sem plantio
+              </div>
+            )}
             <div className="md:hidden ml-5 mt-1.5"><FaixaCobertura c={c} /></div>
           </td>
           <td className="p-3 text-center">
@@ -229,6 +241,12 @@ export default function Planejamento({ onNotify }: Props) {
           >
             <Copy className="w-4 h-4" /> Copiar lista da semana
           </button>
+          <button
+            onClick={() => setRegistrando(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+          >
+            <ShoppingCart className="w-4 h-4" /> Já comprei
+          </button>
           {canEdit && (
             <button
               onClick={() => setVerConfig(v => !v)}
@@ -248,6 +266,18 @@ export default function Planejamento({ onNotify }: Props) {
             mas fica mais firme com 4 a 8 semanas de dados. Confira os números com o que você conhece do campo.
           </span>
         </div>
+      )}
+
+      {registrando && (
+        <RegistrarCompra
+          semana={semana}
+          dataSemana={datasSemanas[semana] || resultado.hoje}
+          itens={aPlantar.filter(c => c.forma === "Muda")}
+          bandeja={config.bandeja}
+          onFechar={() => setRegistrando(false)}
+          onSalvo={msg => { setRegistrando(false); onNotify(msg, "success"); carregar(); }}
+          onErro={msg => onNotify(msg, "error")}
+        />
       )}
 
       {verConfig && canEdit && <Config config={config} salvando={salvando} onSalvar={salvarConfig} />}
@@ -380,6 +410,13 @@ function Detalhe({
             <span className="px-2 py-1 text-slate-400">normal: {fmt(c.plantar[0].base, 0)} {c.unidadePlantio}/semana</span>
           </div>
         )}
+        {c.comprasPendentes.map(cp => (
+          <p key={cp.id} className="text-indigo-700">
+            🛒 <strong>{fmt(cp.saldo, 0)} mudas</strong> compradas em {formatarData(cp.data).slice(0, 5)}
+            {cp.pedido ? ` (pedido ${cp.pedido})` : ""}{cp.aguardandoNota ? ", aguardando nota" : ""}:
+            contam como plantio da semana de {formatarData(cp.plantio).slice(0, 5)} até o plantio ser lançado.
+          </p>
+        ))}
         {c.avisos.map(a => (
           <p key={a} className="text-amber-700 font-semibold">• {a}</p>
         ))}
@@ -466,6 +503,131 @@ function Config({ config, salvando, onSalvar }: { config: ConfigPlanejamento; sa
       >
         Salvar ajustes
       </button>
+    </div>
+  );
+}
+
+/**
+ * "Já comprei": registra as mudas da lista da semana como compra antes de a
+ * nota chegar. A compra fica "Aguardando nota" e já conta no planejamento
+ * como plantio previsto para a semana escolhida.
+ */
+function RegistrarCompra({ semana, dataSemana, itens, bandeja, onFechar, onSalvo, onErro }: {
+  semana: number;
+  dataSemana: string;
+  itens: PlanoCultura[];
+  bandeja: number;
+  onFechar: () => void;
+  onSalvo: (msg: string) => void;
+  onErro: (msg: string) => void;
+}) {
+  const [data, setData] = useState(hojeLocal());
+  const [fornecedor, setFornecedor] = useState("Brazplant");
+  const [pedido, setPedido] = useState("");
+  const [plantio, setPlantio] = useState(dataSemana);
+  const [qtd, setQtd] = useState<Record<string, string>>(
+    Object.fromEntries(itens.map(c => [c.cultura, String(c.plantar[semana]?.quantidade || 0)]))
+  );
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async () => {
+    const lista = itens.map(c => ({ cultura: c.cultura, quantidade: Math.round(Number(qtd[c.cultura]) || 0) })).filter(i => i.quantidade > 0);
+    if (lista.length === 0) return onErro("Informe ao menos uma quantidade.");
+    if (!fornecedor.trim()) return onErro("Informe o fornecedor.");
+    try {
+      setSalvando(true);
+      const batch = writeBatch(db);
+      const aammdd = data.replace(/-/g, "").substring(2);
+      lista.forEach(item => {
+        const id = `COMP-${aammdd}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const payload: Purchase = {
+          id, docId: id, data,
+          fornecedor: fornecedor.trim(),
+          nf: "S/N",
+          tipo: "Muda",
+          cultura: item.cultura,
+          quantidade: item.quantidade,
+          saldo: item.quantidade,
+          status: "Ativo",
+          aguardandoNota: true,
+          plantioPrevisto: plantio,
+          ...(pedido.trim() ? { pedido: pedido.trim() } : {}),
+          ...launchStamp()
+        };
+        batch.set(doc(db, "purchases", id), payload);
+      });
+      await batch.commit();
+      onSalvo(`${lista.length} compra${lista.length > 1 ? "s" : ""} registrada${lista.length > 1 ? "s" : ""}, aguardando nota. Complete a nota na aba Compras quando chegar.`);
+    } catch (err) {
+      console.error(err);
+      onErro("Não foi possível registrar a compra.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={onFechar}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-5 border-b border-slate-200 flex justify-between items-start">
+          <div>
+            <h3 className="font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-indigo-600" /> Já comprei estas mudas</h3>
+            <p className="text-xs text-slate-500 mt-1">A compra entra como <strong>aguardando nota</strong> e sai do planejamento. Quando a nota chegar, complete na aba Compras.</p>
+          </div>
+          <button onClick={onFechar} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-4 text-xs">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Data do pedido</span>
+              <input type="date" value={data} onChange={e => setData(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg" />
+            </label>
+            <label className="block">
+              <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Plantio previsto</span>
+              <input type="date" value={plantio} onChange={e => setPlantio(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg" />
+            </label>
+            <label className="block">
+              <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Fornecedor</span>
+              <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg" />
+            </label>
+            <label className="block">
+              <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Nº do pedido (opcional)</span>
+              <input value={pedido} onChange={e => setPedido(e.target.value)} placeholder="ex.: 22514" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg font-mono" />
+            </label>
+          </div>
+          {itens.length === 0 ? (
+            <p className="text-slate-500">Nenhuma muda sugerida para esta semana.</p>
+          ) : (
+            <div className="space-y-2">
+              <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Mudas compradas</span>
+              {itens.map(c => (
+                <div key={c.cultura} className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-700">{c.cultura}</span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number" min="0" step={bandeja > 0 ? bandeja : 1}
+                      value={qtd[c.cultura] ?? ""}
+                      onChange={e => setQtd(q => ({ ...q, [c.cultura]: e.target.value }))}
+                      className="w-24 px-2 py-1.5 border border-slate-200 rounded-lg font-mono text-right"
+                    />
+                    <span className="text-slate-400 w-10">mudas</span>
+                  </div>
+                </div>
+              ))}
+              <p className="text-[10px] text-slate-400">Zere o que não foi comprado.</p>
+            </div>
+          )}
+        </div>
+        <div className="p-5 border-t border-slate-200 flex justify-end gap-2">
+          <button onClick={onFechar} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer">Cancelar</button>
+          <button
+            onClick={salvar} disabled={salvando || itens.length === 0}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl cursor-pointer inline-flex items-center gap-1.5"
+          >
+            {salvando && <Loader2 className="w-4 h-4 animate-spin" />} Registrar compra
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

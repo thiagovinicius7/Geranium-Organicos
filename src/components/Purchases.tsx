@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { CanEdit, launchStamp } from "../lib/permissions";
 import { plantiosDaCompra, colheitasDoPlantio, unidadeColheita, hojeLocal } from "../lib/producao";
 import { Harvest } from "../types";
-import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch, deleteField } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Purchase, Crop, Planting } from "../types";
 import { Plus, Trash, Search, ArrowLeft, Loader2, Info, ChevronDown, ChevronUp, Check, X, Edit2, Calendar, Filter } from "lucide-react";
@@ -42,6 +42,9 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const [compraData, setCompraData] = useState<string>(hojeLocal());
   const [compraFornecedor, setCompraFornecedor] = useState<string>("");
   const [compraNf, setCompraNf] = useState<string>("");
+  const [compraPedido, setCompraPedido] = useState<string>("");
+  const [compraSemNota, setCompraSemNota] = useState<boolean>(false);
+  const [soAguardandoNota, setSoAguardandoNota] = useState<boolean>(false);
   const [itens, setItens] = useState<NewPurchaseItem[]>([{ tipo: "Muda", cultura: "", quantidade: 0 }]);
   const [saving, setSaving] = useState<boolean>(false);
 
@@ -50,6 +53,8 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const [editData, setEditData] = useState<string>("");
   const [editFornecedor, setEditFornecedor] = useState<string>("");
   const [editNf, setEditNf] = useState<string>("");
+  const [editPedido, setEditPedido] = useState<string>("");
+  const [editAguardando, setEditAguardando] = useState<boolean>(false);
   const [editTipo, setEditTipo] = useState<"Muda" | "Semente">("Muda");
   const [editCultura, setEditCultura] = useState<string>("");
   const [editQuantidade, setEditQuantidade] = useState<number>(0);
@@ -186,7 +191,9 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     setEditingPurchase(p);
     setEditData(p.data || hojeLocal());
     setEditFornecedor(p.fornecedor || "");
-    setEditNf(p.nf || "");
+    setEditNf(p.nf === "S/N" ? "" : (p.nf || ""));
+    setEditPedido(p.pedido || "");
+    setEditAguardando(!!p.aguardandoNota);
     setEditTipo(isSemente(p.tipo) ? "Semente" : "Muda");
     setEditCultura(p.cultura || "");
     setEditQuantidade(p.quantidade || 0);
@@ -220,6 +227,8 @@ export default function Purchases({ onNotify }: PurchasesProps) {
         data: editData,
         fornecedor: editFornecedor.trim(),
         nf: editNf.trim() || "S/N",
+        pedido: editPedido.trim() || deleteField(),
+        aguardandoNota: editAguardando ? true : deleteField(),
         tipo: editTipo,
         cultura: editCultura,
         quantidade: Number(editQuantidade),
@@ -242,6 +251,8 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     setCompraData(hojeLocal());
     setCompraFornecedor("");
     setCompraNf("");
+    setCompraPedido("");
+    setCompraSemNota(false);
     setItens([{ tipo: "Muda", cultura: "", quantidade: 0 }]);
     setIsFormOpen(true);
   };
@@ -281,6 +292,8 @@ export default function Purchases({ onNotify }: PurchasesProps) {
           data: compraData,
           fornecedor: compraFornecedor.trim(),
           nf: compraNf.trim() || "S/N",
+          ...(compraPedido.trim() ? { pedido: compraPedido.trim() } : {}),
+          ...(compraSemNota && !compraNf.trim() ? { aguardandoNota: true } : {}),
           tipo: item.tipo,
           cultura: item.cultura,
           quantidade: Number(item.quantidade),
@@ -329,11 +342,13 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     const matchesQuery = !search.trim() || 
       (p.cultura || "").toLowerCase().includes(search.toLowerCase()) || 
       (p.fornecedor || "").toLowerCase().includes(search.toLowerCase()) ||
-      (p.id || "").toLowerCase().includes(search.toLowerCase());
+      (p.id || "").toLowerCase().includes(search.toLowerCase()) ||
+      (p.pedido || "").toLowerCase().includes(search.toLowerCase());
 
     const matchesDate = !selectedDateFilter || p.data === selectedDateFilter;
+    const matchesNota = !soAguardandoNota || !!p.aguardandoNota;
 
-    return matchesQuery && matchesDate;
+    return matchesQuery && matchesDate && matchesNota;
   };
 
   const activeMudas = purchases.filter(p => 
@@ -354,6 +369,8 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     (p.status === "Esgotado" || (p.saldo !== undefined && p.saldo <= 0)) &&
     matchesSearchAndDate(p)
   );
+
+  const aguardandoNota = purchases.filter(p => p.aguardandoNota);
 
   const dateFilteredAllItems = selectedDateFilter
     ? purchases.filter(p => p.data === selectedDateFilter)
@@ -419,6 +436,16 @@ export default function Purchases({ onNotify }: PurchasesProps) {
               </div>
             </div>
 
+            {aguardandoNota.length > 0 && (
+              <button
+                onClick={() => setSoAguardandoNota(v => !v)}
+                className={`w-full text-left p-4 rounded-2xl border text-xs font-semibold transition cursor-pointer ${soAguardandoNota ? "bg-amber-100 border-amber-300 text-amber-900" : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"}`}
+              >
+                🧾 {aguardandoNota.length} compra{aguardandoNota.length > 1 ? "s" : ""} aguardando nota
+                {" — "}{soAguardandoNota ? "mostrando só elas (toque para ver todas)" : "toque para ver só elas"}. Quando a nota chegar, abra a compra em Editar e preencha o número e a quantidade real.
+              </button>
+            )}
+
             {/* Selected Date Summary Card if filtering by date */}
             {selectedDateFilter && (
               <motion.div
@@ -464,7 +491,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                         <div className="text-xs text-emerald-200 space-y-0.5">
                           <p><span className="text-emerald-400 font-semibold">Tipo:</span> {p.tipo}</p>
                           <p><span className="text-emerald-400 font-semibold">Fornecedor:</span> {p.fornecedor}</p>
-                          <p><span className="text-emerald-400 font-semibold">NF:</span> {p.nf}</p>
+                          <p><span className="text-emerald-400 font-semibold">NF:</span> {p.aguardandoNota ? "aguardando nota" : p.nf}{p.pedido ? ` · pedido ${p.pedido}` : ""}</p>
                           <p><span className="text-emerald-400 font-semibold">Qtde / Saldo:</span> {p.quantidade} / <strong className="text-white font-mono">{p.saldo}</strong></p>
                         </div>
                         <div className="pt-2 flex items-center justify-end gap-2 border-t border-emerald-800/50">
@@ -524,7 +551,11 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                 <span className="text-xs text-slate-500 font-medium">{formatToBrazDate(p.data)}</span>
                               </td>
                               <td className="p-4 font-bold text-slate-800">{p.cultura}</td>
-                              <td className="p-4 text-slate-500 text-xs font-medium">{p.fornecedor}</td>
+                              <td className="p-4 text-slate-500 text-xs font-medium">
+                                {p.fornecedor}
+                                {p.pedido && <span className="block text-[10px] text-slate-400">Pedido {p.pedido}</span>}
+                                {p.aguardandoNota && <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">Aguardando nota</span>}
+                              </td>
                               <td className="p-4 text-center text-emerald-600 font-black font-mono text-sm">
                                 {p.saldo.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">unid</span>
                               </td>
@@ -669,7 +700,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                 <tr key={p.id} className="hover:bg-slate-100/30 transition text-slate-500">
                                   <td className="p-3 font-mono font-medium">{p.id}<br/>{formatToBrazDate(p.data)}{usoDoLote(p) && <span className="block font-sans text-[10px] text-emerald-700 font-semibold mt-0.5">{usoDoLote(p)}</span>}</td>
                                   <td className="p-3 font-bold text-slate-700">{p.cultura}</td>
-                                  <td className="p-3 font-medium">{p.tipo} - <span className="text-slate-500">{p.fornecedor}</span></td>
+                                  <td className="p-3 font-medium">{p.tipo} - <span className="text-slate-500">{p.fornecedor}</span>{p.aguardandoNota && <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">Aguardando nota</span>}</td>
                                   <td className="p-3 text-xs">
                                     <span className="font-semibold text-slate-600 block">{p.motivoZerar || "Lote Plantado / Esgotado"}</span>
                                   </td>
@@ -772,10 +803,26 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                           <input
                             type="text"
                             value={editNf}
-                            onChange={(e) => setEditNf(e.target.value)}
+                            onChange={(e) => { setEditNf(e.target.value); if (e.target.value.trim()) setEditAguardando(false); }}
                             className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-medium"
                           />
                         </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 items-end">
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Nº do pedido</label>
+                          <input
+                            type="text"
+                            value={editPedido}
+                            onChange={(e) => setEditPedido(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-mono"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 py-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                          <input type="checkbox" checked={editAguardando} onChange={(e) => setEditAguardando(e.target.checked)} />
+                          Aguardando nota
+                        </label>
                       </div>
 
                       <div className="space-y-1">
@@ -804,7 +851,12 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                             step="0.01"
                             required
                             value={editQuantidade}
-                            onChange={(e) => setEditQuantidade(parseFloat(e.target.value) || 0)}
+                            onChange={(e) => {
+                              const nova = parseFloat(e.target.value) || 0;
+                              // Nota com quantidade diferente do pedido: o saldo acompanha a diferença.
+                              setEditSaldo(s => Math.max(0, s + (nova - editQuantidade)));
+                              setEditQuantidade(nova);
+                            }}
                             className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800 outline-none focus:border-emerald-500"
                           />
                         </div>
@@ -923,9 +975,28 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                     type="text"
                     placeholder="Ex: 004.281"
                     value={compraNf}
-                    onChange={(e) => setCompraNf(e.target.value)}
+                    onChange={(e) => { setCompraNf(e.target.value); if (e.target.value.trim()) setCompraSemNota(false); }}
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white text-sm text-slate-800 rounded-xl outline-none transition"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl items-end">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      Nº do pedido <span className="text-slate-400 font-normal font-sans">(Opcional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 22514"
+                      value={compraPedido}
+                      onChange={(e) => setCompraPedido(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white text-sm text-slate-800 rounded-xl outline-none transition font-mono"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 py-2.5 text-sm font-semibold text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={compraSemNota} onChange={(e) => setCompraSemNota(e.target.checked)} />
+                    A nota ainda não chegou
+                  </label>
                 </div>
 
                 <hr className="border-slate-100" />

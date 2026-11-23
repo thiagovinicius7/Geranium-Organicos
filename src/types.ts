@@ -26,6 +26,12 @@ export interface Purchase {
   saldo: number;
   status: "Ativo" | "Esgotado" | string;
   motivoZerar?: string;
+  /** Número do pedido ao fornecedor (antes de a nota chegar). */
+  pedido?: string;
+  /** Comprada, mas a nota fiscal ainda não chegou: completar depois. */
+  aguardandoNota?: boolean;
+  /** Semana prevista para o plantio (AAAA-MM-DD). Sem ela, conta 7 dias depois da compra. */
+  plantioPrevisto?: string;
   // Quem lançou e quando (lançamentos novos)
   criadoPor?: string;
   criadoPorEmail?: string;

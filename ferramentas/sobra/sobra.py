@@ -9,7 +9,7 @@ link sem login, digita Sobrou e Perdeu e envia. Depois o Claude confere:
 
 A feira é a do dia do quadro, se for dia de feira (ter, qua, sex, sáb), senão a
 próxima. Um segundo quadro da mesma feira entra no mesmo formulário enquanto a
-loja não respondeu. Folhas, ervas e alfaces vão para a xepa; o resto fica.
+loja não respondeu. Folhas, ervas, alfaces e brócolis vão para a xepa; o resto fica.
 Regras iguais a src/lib/sobra.ts.
 
 Uso:
@@ -74,7 +74,8 @@ def rotulo(cultura, unidade):
 
 
 def destino(cultura, unidade):
-    if unidade == "MÇ" or (unidade == "UN" and norm(cultura).startswith("alface")):
+    """Folhas, ervas, alfaces e brócolis vão para a xepa; o resto fica para a próxima feira."""
+    if unidade == "MÇ" or (unidade == "UN" and norm(cultura).startswith("alface")) or norm(cultura).startswith("brocolis"):
         return "xepa"
     return "fica"
 

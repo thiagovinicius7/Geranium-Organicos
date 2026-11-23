@@ -89,7 +89,7 @@ export default function Sobras({ onNotify }: Props) {
 
   const respondida = sel?.status === "enviada" || sel?.status === "conferida";
   const grupos = [
-    { titulo: "Folhas, ervas e alfaces", nota: "A sobra vai para a xepa.", linhas: linhas.filter(l => l.destino === "xepa") },
+    { titulo: "Folhas, ervas, alfaces e brócolis", nota: "A sobra vai para a xepa.", linhas: linhas.filter(l => l.destino === "xepa") },
     { titulo: "Frutas, legumes e raízes", nota: "A sobra fica para a próxima feira.", linhas: linhas.filter(l => l.destino !== "xepa") },
   ].filter(g => g.linhas.length);
 

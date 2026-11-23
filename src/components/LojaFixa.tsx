@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
+import { Fragment, useEffect, useState } from "react";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import SobraLoja from "./SobraLoja";
 
 // Link fixo da Bioloja (#/loja/<token>): abre sempre a sobra mais recente.
-// O script do quadro aponta lojas/<token> para cada formulário novo.
+// O script do quadro aponta lojas/<token> para cada formulário novo. A tela
+// acompanha o apontamento ao vivo e confere de novo sempre que o celular
+// volta para a aba, para nunca mostrar uma lista antiga.
 
 export default function LojaFixa({ token }: { token: string }) {
   const [sobraId, setSobraId] = useState<string | null>(null);
   const [estado, setEstado] = useState<"carregando" | "ok" | "naoEncontrado" | "erro">("carregando");
 
   async function carregar() {
-    setEstado("carregando");
     try {
       const snap = await getDoc(doc(db, "lojas", token));
       const id = snap.exists() ? snap.data().sobraId : null;
@@ -23,9 +24,24 @@ export default function LojaFixa({ token }: { token: string }) {
     }
   }
 
-  useEffect(() => { carregar(); }, [token]);
+  useEffect(() => {
+    carregar();
+    const pare = onSnapshot(doc(db, "lojas", token), snap => {
+      const id = snap.exists() ? snap.data().sobraId : null;
+      if (typeof id === "string" && id) { setSobraId(id); setEstado("ok"); }
+    }, e => console.error(e));
+    const aoVoltar = () => { if (document.visibilityState === "visible") carregar(); };
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("pageshow", aoVoltar);
+    return () => {
+      pare();
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.removeEventListener("pageshow", aoVoltar);
+    };
+  }, [token]);
 
-  if (estado === "ok" && sobraId) return <SobraLoja id={sobraId} fixo />;
+  // A chave troca a tela inteira quando chega uma lista nova.
+  if (sobraId && estado !== "naoEncontrado") return <Fragment key={sobraId}><SobraLoja id={sobraId} fixo={token} /></Fragment>;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans max-w-xl mx-auto">

@@ -484,6 +484,14 @@ def main():
     sessao = gravar(plano, token, uid, email)
     print(f"\nGRAVADO: sessão {sessao} — {len(plano['colheitas'])} colheitas, {len(plano['plantios'])} plantios novos,"
           f" {len(plano['culturas'])} culturas novas, {len(plano['compras'])} compras, {len(plano['encerrar'])} Mudar ID.")
+    if plano["colheitas"]:
+        # Toda colheita lançada atualiza a sobra da feira e o link fixo da Bioloja.
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sobra"))
+        import sobra
+        try:
+            sobra.cmd_gerar([sessao], True, token, uid, email)
+        except SystemExit as e:
+            print(f"\nATENÇÃO: o link da Bioloja NÃO foi atualizado: {e}")
 
 
 if __name__ == "__main__":

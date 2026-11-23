@@ -1,7 +1,7 @@
 // Testes do formulário de sobra da Bioloja (src/lib/sobra.ts).
 // Para rodar: npx esbuild tests/sobra.test.ts --bundle --platform=node --format=cjs --outfile=/tmp/sobra.cjs && node /tmp/sobra.cjs
 
-import { proximaFeira, dataFeiraExtensa, lerNumero, totalNaLoja, vendido, agruparItens, SobraItem, resumoSobra, substitutaDe, Sobra } from "../src/lib/sobra";
+import { proximaFeira, dataFeiraExtensa, lerNumero, totalNaLoja, vendido, agruparItens, SobraItem, resumoSobra, substitutaDe, destinoNaLoja, Sobra } from "../src/lib/sobra";
 let ok = 0, fail = 0;
 const eq = (n: string, a: any, b: any) => { const pass = JSON.stringify(a) === JSON.stringify(b); pass ? ok++ : fail++; console.log(pass ? "ok   " : "FALHOU", n, pass ? "" : `${JSON.stringify(a)} != ${JSON.stringify(b)}`); };
 
@@ -36,6 +36,18 @@ const s17: Sobra = { ...base, id: "a", feira: "2026-11-17", sessoes: ["COL-26111
 const s18: Sobra = { ...base, id: "b", feira: "2026-11-18", sessoes: ["COL-261117-X", "COL-261118-Y"] };
 eq("sobra levada para a feira seguinte", substitutaDe(s17, [s17, s18])?.id, "b");
 eq("a mais nova não é substituída", substitutaDe(s18, [s17, s18]), null);
+
+// Rastreabilidade: destino na loja.
+const alf = { cultura: "Alface Americana", unidade: "UN", rotulo: "pés", destino: "xepa" as const, anterior: 0, colhido: 30 };
+const f17: Sobra = { id: "a", feira: "2026-11-17", status: "enviada", sessoes: ["S17"], itens: [alf], respostas: [{ sobrou: 3, perdeu: 0 }] };
+const f18: Sobra = { id: "b", feira: "2026-11-18", status: "enviada", sessoes: ["S17", "S18"], itens: [alf], respostas: [{ sobrou: 3, perdeu: 1 }] };
+const minhas = [{ idSessao: "S17", cultura: "Alface Americana", qtd: 12 }, { idSessao: "S18", cultura: "Alface Americana", qtd: 8 }];
+const dl = destinoNaLoja(minhas, [f17, f18]);
+eq("rastreio: só a sobra ativa", dl.map(d => d.feira), ["2026-11-18"]);
+eq("rastreio: soma deste plantio", dl[0].doPlantio, 20);
+eq("rastreio: vendido da cultura", dl[0].vendido, 26);
+eq("rastreio: aberta sem números", destinoNaLoja(minhas, [{ ...f18, status: "aberta", respostas: undefined }])[0].sobrou, null);
+eq("rastreio: plantio fora da feira", destinoNaLoja([{ idSessao: "X", cultura: "Alface Americana", qtd: 1 }], [f18]).length, 0);
 
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

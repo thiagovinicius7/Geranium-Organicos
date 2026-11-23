@@ -135,3 +135,59 @@ export function substitutaDe(s: Sobra, todas: Sobra[]): Sobra | null {
   if (!s.sessoes?.length) return null;
   return todas.find(o => o.id !== s.id && o.feira > s.feira && s.sessoes.every(x => (o.sessoes || []).includes(x))) || null;
 }
+
+// ---------------------------------------------------------------- rastreabilidade
+
+export interface DestinoLoja {
+  sobraId: string;
+  feira: string;
+  status: StatusSobra;
+  quemContou?: string;
+  cultura: string;
+  rotulo: string;
+  destino: Destino;
+  /** Colhido deste plantio que foi para esta feira. */
+  doPlantio: number;
+  /** A loja conta por cultura: os números abaixo são da cultura inteira na feira. */
+  total: number;
+  sobrou: number | null;
+  perdeu: number | null;
+  vendido: number | null;
+}
+
+const semAcento = (s: string) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+/**
+ * Para onde foi a colheita de um plantio na Bioloja: cada feira (sobra ativa)
+ * que recebeu colheitas dele, com o que chegou dele e o resultado da cultura.
+ */
+export function destinoNaLoja(
+  colheitas: { idSessao: string; cultura: string; qtd: number }[],
+  sobras: (Sobra & { resumo?: LinhaResumo[] })[]
+): DestinoLoja[] {
+  const ativas = sobras.filter(s => !substitutaDe(s, sobras));
+  const out: DestinoLoja[] = [];
+  for (const s of ativas) {
+    const minhas = colheitas.filter(h => (s.sessoes || []).includes(h.idSessao));
+    if (!minhas.length) continue;
+    const cultura = minhas[0].cultura;
+    const i = s.itens.findIndex(it => semAcento(it.cultura) === semAcento(cultura));
+    if (i < 0) continue;
+    const it = s.itens[i];
+    const doPlantio = r3(minhas.reduce((a, h) => a + (Number(h.qtd) || 0), 0));
+    let sobrou: number | null = null, perdeu: number | null = null, vend: number | null = null;
+    const conferida = s.status === "conferida" ? s.resumo?.find(l => semAcento(l.cultura) === semAcento(cultura)) : undefined;
+    if (conferida) {
+      sobrou = conferida.sobrou; perdeu = conferida.perdeu; vend = conferida.vendido;
+    } else if (s.status !== "aberta" && s.respostas?.[i]) {
+      sobrou = r3(s.respostas[i].sobrou || 0); perdeu = r3(s.respostas[i].perdeu || 0);
+      vend = vendido(it, s.respostas[i]);
+    }
+    out.push({
+      sobraId: s.id, feira: s.feira, status: s.status, quemContou: s.quemContou,
+      cultura: it.cultura, rotulo: it.rotulo, destino: conferida?.destino || it.destino,
+      doPlantio, total: totalNaLoja(it), sobrou, perdeu, vendido: vend,
+    });
+  }
+  return out.sort((a, b) => a.feira.localeCompare(b.feira));
+}

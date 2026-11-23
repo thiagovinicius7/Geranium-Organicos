@@ -97,5 +97,38 @@ t("coentro: sugere área em m²", co.plantar[0].quantidade > 0 && co.unidadePlan
 r = calcularPlanejamento(cropsRef.map(c => c.nome === "Coentro" ? { ...c, planejamento: { rendimento: 8 } } : c), coP, coH, CONFIG_PADRAO, hoje);
 t("valor informado vence a referência", r.culturas.find(c => c.cultura === "Coentro")!.rendimento === 8);
 
+// 10) Compra de muda sem plantio lançado conta como plantio previsto (sem duplicar o pedido).
+const semCompra = calcularPlanejamento(crops, [perene], harvests, CONFIG_PADRAO, hoje);
+const base10 = semCompra.culturas.find(c => c.cultura === "Alface Crespa verde")!;
+const compra: any = { id: "COMP-1", data: somarDias(hoje, -5), fornecedor: "Brazplant", nf: "S/N", tipo: "Muda", cultura: "Alface Crespa verde", quantidade: 200, saldo: 200, status: "Ativo", pedido: "22514", aguardandoNota: true };
+r = calcularPlanejamento(crops, [perene], harvests, CONFIG_PADRAO, hoje, [compra]);
+const a10 = r.culturas.find(c => c.cultura === "Alface Crespa verde")!;
+t("compra pendente: sugestão desta semana diminui", a10.plantar[0].quantidade < base10.plantar[0].quantidade, { antes: base10.plantar[0], depois: a10.plantar[0] });
+t("compra pendente: aparece na lista da cultura", a10.comprasPendentes.length === 1 && a10.comprasPendentes[0].pedido === "22514" && a10.comprasPendentes[0].aguardandoNota);
+t("compra pendente: não conta como plantio no campo", a10.plantiosAbertos === 0);
+// Plantio lançado: o saldo zera e quem conta é o plantio. Mesmo resultado, sem somar duas vezes.
+const plantada = { ...compra, saldo: 0, status: "Esgotado" };
+const plantio10: any = { id: "P-C1", idLote: "COMP-1", cultura: "Alface Crespa verde", tipo: "Muda", status: "No campo", data: hoje, previsao: somarDias(hoje, 35), quantidade: 200, unidade: "Unidades", totalColhido: 0 };
+r = calcularPlanejamento(crops, [perene, plantio10], harvests, CONFIG_PADRAO, hoje, [plantada]);
+const b10 = r.culturas.find(c => c.cultura === "Alface Crespa verde")!;
+t("plantio lançado substitui a compra (mesma sugestão)", b10.plantar[0].quantidade === a10.plantar[0].quantidade && b10.comprasPendentes.length === 0, { compra: a10.plantar[0], plantio: b10.plantar[0] });
+// Semente não conta; compra antiga só avisa.
+r = calcularPlanejamento(crops, [perene], harvests, CONFIG_PADRAO, hoje, [{ ...compra, tipo: "Semente" }]);
+t("semente comprada não conta", r.culturas.find(c => c.cultura === "Alface Crespa verde")!.comprasPendentes.length === 0);
+r = calcularPlanejamento(crops, [perene], harvests, CONFIG_PADRAO, hoje, [{ ...compra, data: somarDias(hoje, -40) }]);
+const velha = r.culturas.find(c => c.cultura === "Alface Crespa verde")!;
+t("compra antiga sem plantio: avisa e não conta", velha.comprasPendentes.length === 0 && velha.avisos.some(a => a.includes("zere o saldo")) && velha.plantar[0].quantidade === base10.plantar[0].quantidade, velha.avisos);
+// Plantio atrasado: avisa, mas ainda conta.
+r = calcularPlanejamento(crops, [perene], harvests, CONFIG_PADRAO, hoje, [{ ...compra, data: somarDias(hoje, -12) }]);
+const atras = r.culturas.find(c => c.cultura === "Alface Crespa verde")!;
+t("plantio previsto passou: avisa e ainda conta", atras.comprasPendentes.length === 1 && atras.avisos.some(a => a.includes("ainda não foi lançado")), atras.avisos);
+// Com bandeja: a compra desta semana tira a bandeja da semana.
+const sem200 = calcularPlanejamento(crops, [perene], harvests, PADRAO, hoje).culturas.find(c => c.cultura === "Alface Crespa verde")!;
+const com200 = calcularPlanejamento(crops, [perene], harvests, PADRAO, hoje, [{ ...compra, saldo: sem200.plantar[0].quantidade, quantidade: sem200.plantar[0].quantidade }]).culturas.find(c => c.cultura === "Alface Crespa verde")!;
+t("bandeja: compra da semana vale como a bandeja da semana e a cadência segue", sem200.plantar[0].quantidade > 0 && com200.plantar[0].quantidade === 0 && com200.plantar.slice(1).some(p => p.quantidade > 0), { sem: sem200.plantar.map(p => p.quantidade), com: com200.plantar.map(p => p.quantidade) });
+// Plantio previsto informado (compra para a semana que vem).
+r = calcularPlanejamento(crops, [perene], harvests, PADRAO, hoje, [{ ...compra, data: hoje, plantioPrevisto: somarDias(hoje, 7), saldo: 200, quantidade: 200 }]);
+t("plantio previsto informado é respeitado", r.culturas.find(c => c.cultura === "Alface Crespa verde")!.comprasPendentes[0].plantio === somarDias(hoje, 7));
+
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

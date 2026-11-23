@@ -37,15 +37,16 @@ const s18: Sobra = { ...base, id: "b", feira: "2026-11-18", sessoes: ["COL-26111
 eq("sobra levada para a feira seguinte", substitutaDe(s17, [s17, s18])?.id, "b");
 eq("a mais nova não é substituída", substitutaDe(s18, [s17, s18]), null);
 
-// Rastreabilidade: destino na loja.
+// Rastreabilidade: sobra da feira na ficha do plantio.
 const alf = { cultura: "Alface Americana", unidade: "UN", rotulo: "pés", destino: "xepa" as const, anterior: 0, colhido: 30 };
 const f17: Sobra = { id: "a", feira: "2026-11-17", status: "enviada", sessoes: ["S17"], itens: [alf], respostas: [{ sobrou: 3, perdeu: 0 }] };
 const f18: Sobra = { id: "b", feira: "2026-11-18", status: "enviada", sessoes: ["S17", "S18"], itens: [alf], respostas: [{ sobrou: 3, perdeu: 1 }] };
-const minhas = [{ idSessao: "S17", cultura: "Alface Americana", qtd: 12 }, { idSessao: "S18", cultura: "Alface Americana", qtd: 8 }];
+const minhas = [{ idSessao: "S17", cultura: "Alface Americana", qtd: 20 }, { idSessao: "S18", cultura: "Alface Americana", qtd: 10 }];
 const dl = destinoNaLoja(minhas, [f17, f18]);
 eq("rastreio: só a sobra ativa", dl.map(d => d.feira), ["2026-11-18"]);
-eq("rastreio: soma deste plantio", dl[0].doPlantio, 20);
-eq("rastreio: vendido da cultura", dl[0].vendido, 26);
+eq("rastreio: sessões da feira", dl[0].sessoes, ["S17", "S18"]);
+eq("rastreio: plantio único fica com a sobra toda", [dl[0].sobrou, dl[0].perdeu], [3, 1]);
+eq("rastreio: dois plantios dividem na proporção", destinoNaLoja([{ idSessao: "S18", cultura: "Alface Americana", qtd: 10 }], [f18])[0].sobrou, 1);
 eq("rastreio: aberta sem números", destinoNaLoja(minhas, [{ ...f18, status: "aberta", respostas: undefined }])[0].sobrou, null);
 eq("rastreio: plantio fora da feira", destinoNaLoja([{ idSessao: "X", cultura: "Alface Americana", qtd: 1 }], [f18]).length, 0);
 

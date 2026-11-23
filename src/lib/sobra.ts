@@ -142,24 +142,28 @@ export interface DestinoLoja {
   sobraId: string;
   feira: string;
   status: StatusSobra;
-  quemContou?: string;
-  cultura: string;
+  /** Sessões de colheita deste plantio que foram para esta feira. */
+  sessoes: string[];
   rotulo: string;
   destino: Destino;
   /** Colhido deste plantio que foi para esta feira. */
   doPlantio: number;
-  /** A loja conta por cultura: os números abaixo são da cultura inteira na feira. */
-  total: number;
+  /** Parte deste plantio na sobra e na perda da cultura naquela feira (null = loja ainda não contou). */
   sobrou: number | null;
   perdeu: number | null;
-  vendido: number | null;
 }
 
-const semAcento = (s: string) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+const semAcento = (s: string) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+/** Arredonda a parte do plantio: kg com 2 casas, o resto (pés, maços, bandejas) inteiro. */
+function arredondaParte(x: number, unidade: string): number {
+  return unidade === "KG" ? Math.round(x * 100) / 100 : Math.round(x);
+}
 
 /**
- * Para onde foi a colheita de um plantio na Bioloja: cada feira (sobra ativa)
- * que recebeu colheitas dele, com o que chegou dele e o resultado da cultura.
+ * A sobra de cada feira que recebeu colheitas de um plantio. A loja conta por
+ * cultura; quando a feira teve mais de um plantio da cultura, a sobra e a
+ * perda são divididas na proporção do que cada um mandou.
  */
 export function destinoNaLoja(
   colheitas: { idSessao: string; cultura: string; qtd: number }[],
@@ -175,18 +179,18 @@ export function destinoNaLoja(
     if (i < 0) continue;
     const it = s.itens[i];
     const doPlantio = r3(minhas.reduce((a, h) => a + (Number(h.qtd) || 0), 0));
-    let sobrou: number | null = null, perdeu: number | null = null, vend: number | null = null;
+    let sob: number | null = null, per: number | null = null;
     const conferida = s.status === "conferida" ? s.resumo?.find(l => semAcento(l.cultura) === semAcento(cultura)) : undefined;
-    if (conferida) {
-      sobrou = conferida.sobrou; perdeu = conferida.perdeu; vend = conferida.vendido;
-    } else if (s.status !== "aberta" && s.respostas?.[i]) {
-      sobrou = r3(s.respostas[i].sobrou || 0); perdeu = r3(s.respostas[i].perdeu || 0);
-      vend = vendido(it, s.respostas[i]);
-    }
+    if (conferida) { sob = conferida.sobrou; per = conferida.perdeu; }
+    else if (s.status !== "aberta" && s.respostas?.[i]) { sob = s.respostas[i].sobrou || 0; per = s.respostas[i].perdeu || 0; }
+    const total = totalNaLoja(it);
+    const parte = total > 0 ? Math.min(1, doPlantio / total) : 0;
     out.push({
-      sobraId: s.id, feira: s.feira, status: s.status, quemContou: s.quemContou,
-      cultura: it.cultura, rotulo: it.rotulo, destino: conferida?.destino || it.destino,
-      doPlantio, total: totalNaLoja(it), sobrou, perdeu, vendido: vend,
+      sobraId: s.id, feira: s.feira, status: s.status,
+      sessoes: Array.from(new Set(minhas.map(h => h.idSessao))),
+      rotulo: it.rotulo, destino: conferida?.destino || it.destino, doPlantio,
+      sobrou: sob === null ? null : arredondaParte(sob * parte, it.unidade),
+      perdeu: per === null ? null : arredondaParte(per * parte, it.unidade),
     });
   }
   return out.sort((a, b) => a.feira.localeCompare(b.feira));

@@ -5,7 +5,7 @@ import { Planting, Purchase, Harvest, Crop } from "../types";
 import { Search, Loader2, Award, Printer, MapPin, Calendar, HelpCircle, FileText, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import GeraniumLogo from "./GeraniumLogo";
-import { Sobra, LinhaResumo, destinoNaLoja, dataFeiraExtensa } from "../lib/sobra";
+import { Sobra, LinhaResumo, destinoNaLoja, DestinoLoja } from "../lib/sobra";
 import { normalizarUnidade, compraDoPlantio, colheitasDoPlantio, statusCalculado, STATUS_INFO } from "../lib/producao";
 
 interface TraceabilityProps {
@@ -119,9 +119,30 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
 
   const selectedPurchase = selectedPlanting ? getAssociatedPurchase(selectedPlanting) : null;
   const selectedHarvests = selectedPlanting ? getAssociatedHarvests(selectedPlanting) : [];
+  // Sobra da Bioloja ao lado das colheitas: uma célula por feira, cobrindo as
+  // colheitas que foram para ela. O que a loja perdeu soma nas perdas.
   const selectedDestinos = selectedHarvests.length ? destinoNaLoja(selectedHarvests, sobras) : [];
-  const fmtN = (n: number | null) => (n === null ? "—" : n.toLocaleString("pt-BR", { maximumFractionDigits: 3 }));
-  const STATUS_SOBRA: Record<string, string> = { aberta: "Aguardando a loja", enviada: "Enviada pela loja", conferida: "Conferida" };
+  const feiraDaSessao = new Map<string, DestinoLoja>();
+  selectedDestinos.forEach(d => d.sessoes.forEach(x => feiraDaSessao.set(x, d)));
+  const fmtN = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  const celulaSobra = (index: number): { d: DestinoLoja | null; span: number } | null => {
+    const d = feiraDaSessao.get(selectedHarvests[index].idSessao) || null;
+    if (d && index > 0 && feiraDaSessao.get(selectedHarvests[index - 1].idSessao) === d) return null;
+    let span = 1;
+    while (d && index + span < selectedHarvests.length && feiraDaSessao.get(selectedHarvests[index + span].idSessao) === d) span++;
+    return { d, span };
+  };
+  const textoSobra = (d: DestinoLoja | null, unidade: string) =>
+    !d ? "—" : d.sobrou === null ? "aguardando a loja" : `${fmtN(d.sobrou)} ${unidade}${d.sobrou ? (d.destino === "xepa" ? " (xepa)" : " (ficou)") : ""}`;
+  const perdasLoja = selectedDestinos.reduce((a, d) => a + (d.perdeu || 0), 0);
+  const textoPerdas = (p: Planting) => {
+    const campo = p.perdas || 0;
+    if (!perdasLoja) return `${campo} ${p.unidade}`;
+    const uColheita = getCropHarvestUnit(p.cultura, p.unidade);
+    // Muda em unidades e colheita em pés/unidades: a mesma conta.
+    if (uColheita === "UN" && /unidade/i.test(p.unidade || "")) return `${fmtN(campo + perdasLoja)} ${p.unidade} (${fmtN(perdasLoja)} na loja)`;
+    return `${campo} ${p.unidade} + ${fmtN(perdasLoja)} ${uColheita} na loja`;
+  };
 
   return (
     <div className="space-y-6 print:m-0 print:p-0">
@@ -318,7 +339,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                       </div>
                       <div className="space-y-0.5">
                         <span className="text-slate-400 font-bold uppercase text-[9px]">Perdas Finais Campo</span>
-                        <p className="font-extrabold text-red-600 text-sm">{selectedPlanting.perdas || 0} {selectedPlanting.unidade}</p>
+                        <p className="font-extrabold text-red-600 text-sm">{textoPerdas(selectedPlanting)}</p>
                       </div>
                       <div className="space-y-0.5">
                         <span className="text-slate-400 font-bold uppercase text-[9px]">Status Atual Campo</span>
@@ -340,7 +361,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
 
                   {/* Section 4: Colheitas Individuais */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-200 pb-1.5">4. Diário Detalhado de Coletas</h3>
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-200 pb-1.5">4. Diário Detalhado de Colheitas</h3>
                     {selectedHarvests.length === 0 ? (
                       <p className="text-xs text-slate-400 italic font-medium">Nenhum lançamento de colheita diária registrado.</p>
                     ) : (
@@ -351,6 +372,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                               <th className="p-2.5">Data da Colheita</th>
                               <th className="p-2.5">Grupo Sessão</th>
                               <th className="p-2.5 text-right">Qtd Colhida ({getCropHarvestUnit(selectedPlanting.cultura, selectedPlanting.unidade)})</th>
+                              <th className="p-2.5 text-right">Sobra na Loja</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 font-mono font-bold">
@@ -359,6 +381,9 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                                 <td className="p-2.5 text-slate-700 font-sans">{formatToBrazDate(h.data)}</td>
                                 <td className="p-2.5 text-slate-400">{h.idSessao}</td>
                                 <td className="p-2.5 text-right text-emerald-600">{h.qtd} {h.unidade || getCropHarvestUnit(h.cultura)}</td>
+                                {(() => { const c = celulaSobra(index); return c && (
+                                  <td rowSpan={c.span} className="p-2.5 text-right text-amber-700 border-l border-slate-100 align-middle">{textoSobra(c.d, h.unidade || getCropHarvestUnit(h.cultura))}</td>
+                                ); })()}
                               </tr>
                             ))}
                           </tbody>
@@ -367,47 +392,6 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                     )}
                   </div>
 
-                  {/* Section 5: Destino na Bioloja */}
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-200 pb-1.5">5. Destino na Bioloja (sobra da feira)</h3>
-                    {selectedDestinos.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic font-medium">Nenhuma colheita deste plantio entrou numa sobra da Bioloja.</p>
-                    ) : (
-                      <>
-                        <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                          <table className="w-full text-left text-xs divide-y divide-slate-200">
-                            <thead>
-                              <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                <th className="p-2.5">Feira</th>
-                                <th className="p-2.5 text-right">Deste plantio</th>
-                                <th className="p-2.5 text-right">Total na loja</th>
-                                <th className="p-2.5 text-right">Sobrou</th>
-                                <th className="p-2.5 text-right">Perdeu</th>
-                                <th className="p-2.5 text-right">Vendido</th>
-                                <th className="p-2.5">Sobra</th>
-                                <th className="p-2.5">Contagem</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 font-bold">
-                              {selectedDestinos.map(d => (
-                                <tr key={d.sobraId}>
-                                  <td className="p-2.5 text-slate-700">{dataFeiraExtensa(d.feira)}</td>
-                                  <td className="p-2.5 text-right font-mono text-emerald-600">{fmtN(d.doPlantio)} {d.rotulo}</td>
-                                  <td className="p-2.5 text-right font-mono text-slate-600">{fmtN(d.total)}</td>
-                                  <td className="p-2.5 text-right font-mono text-slate-600">{fmtN(d.sobrou)}</td>
-                                  <td className="p-2.5 text-right font-mono text-red-600">{fmtN(d.perdeu)}</td>
-                                  <td className="p-2.5 text-right font-mono text-emerald-700">{fmtN(d.vendido)}</td>
-                                  <td className="p-2.5 text-slate-500">{d.sobrou ? (d.destino === "xepa" ? "Xepa" : "Ficou p/ próxima feira") : "—"}</td>
-                                  <td className="p-2.5 text-slate-500">{STATUS_SOBRA[d.status]}{d.quemContou ? ` · ${d.quemContou}` : ""}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-medium">A loja conta por cultura: total, sobra, perda e venda são de {selectedPlanting.cultura} inteira naquela feira, somando todos os plantios.</p>
-                      </>
-                    )}
-                  </div>
 
                   {/* Auditor footer stamps */}
                   <div className="grid grid-cols-2 gap-10 pt-10 border-t border-slate-200 text-center text-[10px] uppercase font-bold text-slate-400 tracking-wider">
@@ -510,7 +494,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
               </div>
               <div>
                 <span className="text-gray-500 uppercase text-[8px] block">Perdas Campo</span>
-                <p className="font-bold">{selectedPlanting.perdas || 0} {selectedPlanting.unidade}</p>
+                <p className="font-bold">{textoPerdas(selectedPlanting)}</p>
               </div>
               <div>
                 <span className="text-gray-500 uppercase text-[8px] block">Status</span>
@@ -524,7 +508,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
           </div>
 
           <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider border-b border-black pb-0.5">4. Diário Detalhado de Coletas</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider border-b border-black pb-0.5">4. Diário Detalhado de Colheitas</h3>
             {selectedHarvests.length === 0 ? (
               <p className="text-xs italic text-gray-500">Nenhum lançamento registrado.</p>
             ) : (
@@ -534,6 +518,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                     <th className="p-2">Data da Colheita</th>
                     <th className="p-2">Grupo Sessão</th>
                     <th className="p-2 text-right">Qtd Colhida</th>
+                    <th className="p-2 text-right">Sobra na Loja</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-300 font-mono font-bold">
@@ -542,49 +527,13 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                       <td className="p-2 text-black font-sans">{formatToBrazDate(h.data)}</td>
                       <td className="p-2 text-gray-600">{h.idSessao}</td>
                       <td className="p-2 text-right font-bold">{h.qtd} {h.unidade || getCropHarvestUnit(h.cultura)}</td>
+                      {(() => { const c = celulaSobra(idx); return c && (
+                        <td rowSpan={c.span} className="p-2 text-right font-bold border-l border-gray-300 align-middle">{textoSobra(c.d, h.unidade || getCropHarvestUnit(h.cultura))}</td>
+                      ); })()}
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider border-b border-black pb-0.5">5. Destino na Bioloja (sobra da feira)</h3>
-            {selectedDestinos.length === 0 ? (
-              <p className="text-xs italic text-gray-500">Nenhuma colheita deste plantio entrou numa sobra da Bioloja.</p>
-            ) : (
-              <>
-                <table className="w-full text-left text-xs divide-y divide-black border border-black">
-                  <thead>
-                    <tr className="bg-gray-100 font-bold uppercase text-[9px]">
-                      <th className="p-2">Feira</th>
-                      <th className="p-2 text-right">Deste plantio</th>
-                      <th className="p-2 text-right">Total na loja</th>
-                      <th className="p-2 text-right">Sobrou</th>
-                      <th className="p-2 text-right">Perdeu</th>
-                      <th className="p-2 text-right">Vendido</th>
-                      <th className="p-2">Sobra</th>
-                      <th className="p-2">Contagem</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-300 font-bold">
-                    {selectedDestinos.map(d => (
-                      <tr key={d.sobraId}>
-                        <td className="p-2">{dataFeiraExtensa(d.feira)}</td>
-                        <td className="p-2 text-right font-mono">{fmtN(d.doPlantio)} {d.rotulo}</td>
-                        <td className="p-2 text-right font-mono">{fmtN(d.total)}</td>
-                        <td className="p-2 text-right font-mono">{fmtN(d.sobrou)}</td>
-                        <td className="p-2 text-right font-mono">{fmtN(d.perdeu)}</td>
-                        <td className="p-2 text-right font-mono">{fmtN(d.vendido)}</td>
-                        <td className="p-2">{d.sobrou ? (d.destino === "xepa" ? "Xepa" : "Ficou p/ próxima feira") : "—"}</td>
-                        <td className="p-2">{STATUS_SOBRA[d.status]}{d.quemContou ? ` · ${d.quemContou}` : ""}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-[9px] text-gray-500">A loja conta por cultura: total, sobra, perda e venda são de {selectedPlanting.cultura} inteira naquela feira, somando todos os plantios.</p>
-              </>
             )}
           </div>
 

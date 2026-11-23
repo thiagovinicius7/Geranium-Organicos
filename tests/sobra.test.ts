@@ -1,7 +1,7 @@
 // Testes do formulário de sobra da Bioloja (src/lib/sobra.ts).
 // Para rodar: npx esbuild tests/sobra.test.ts --bundle --platform=node --format=cjs --outfile=/tmp/sobra.cjs && node /tmp/sobra.cjs
 
-import { proximaFeira, dataFeiraExtensa, lerNumero, totalNaLoja, vendido, agruparItens, SobraItem } from "../src/lib/sobra";
+import { proximaFeira, dataFeiraExtensa, lerNumero, totalNaLoja, vendido, agruparItens, SobraItem, resumoSobra, substitutaDe, Sobra } from "../src/lib/sobra";
 let ok = 0, fail = 0;
 const eq = (n: string, a: any, b: any) => { const pass = JSON.stringify(a) === JSON.stringify(b); pass ? ok++ : fail++; console.log(pass ? "ok   " : "FALHOU", n, pass ? "" : `${JSON.stringify(a)} != ${JSON.stringify(b)}`); };
 
@@ -24,6 +24,18 @@ eq("decimais sem lixo", vendido({ ...banana, anterior: 0.1, colhido: 0.2 }, { so
 const couve: SobraItem = { cultura: "Couve", unidade: "MÇ", rotulo: "maço", destino: "xepa", anterior: 0, colhido: 12 };
 eq("xepa primeiro, depois o que fica", agruparItens([banana, couve]).map(g => g.indices), [[1], [0]]);
 eq("grupo vazio some", agruparItens([banana]).length, 1);
+
+// Aba Sobras: mesma conta do script.
+const r = resumoSobra({ itens: [banana, couve], respostas: [{ sobrou: 2, perdeu: 1 }, { sobrou: 3, perdeu: 0 }] });
+eq("resumo: vendido = total − sobrou − perdeu", r.linhas.map(l => l.vendido), [vendido(banana, { sobrou: 2, perdeu: 1 }), vendido(couve, { sobrou: 3, perdeu: 0 })]);
+eq("resumo: sobra da banana fica", [r.linhas[0].fica, r.linhas[0].xepa], [2, 0]);
+eq("resumo: sobra da couve vai para a xepa", [r.linhas[1].fica, r.linhas[1].xepa], [0, 3]);
+eq("resumo: passou do total vira incoerência", resumoSobra({ itens: [couve], respostas: [{ sobrou: 999, perdeu: 0 }] }).incoerencias.length, 1);
+const base = { status: "enviada" as const, itens: [], respostas: [] };
+const s17: Sobra = { ...base, id: "a", feira: "2026-11-17", sessoes: ["COL-261117-X"] };
+const s18: Sobra = { ...base, id: "b", feira: "2026-11-18", sessoes: ["COL-261117-X", "COL-261118-Y"] };
+eq("sobra levada para a feira seguinte", substitutaDe(s17, [s17, s18])?.id, "b");
+eq("a mais nova não é substituída", substitutaDe(s18, [s17, s18]), null);
 
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

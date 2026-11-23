@@ -72,3 +72,66 @@ export function agruparItens(itens: SobraItem[]) {
     { titulo: "Frutas, legumes e raízes", nota: "O que sobrar fica para a próxima feira.", indices: fica },
   ].filter(g => g.indices.length > 0);
 }
+
+// ---------------------------------------------------------------- aba Sobras
+
+export type StatusSobra = "aberta" | "enviada" | "conferida";
+
+export interface Sobra {
+  id: string;
+  feira: string;
+  status: StatusSobra;
+  itens: SobraItem[];
+  sessoes: string[];
+  respostas?: SobraResposta[];
+  quemContou?: string;
+  obs?: string;
+  enviadoEm?: Date | null;
+  conferidoEm?: Date | null;
+}
+
+export interface LinhaResumo {
+  cultura: string;
+  unidade: string;
+  rotulo: string;
+  destino: Destino;
+  anterior: number;
+  colhido: number;
+  total: number;
+  sobrou: number;
+  perdeu: number;
+  vendido: number;
+  fica: number;
+  xepa: number;
+}
+
+const r3 = (x: number) => Math.round(x * 1000) / 1000;
+
+/** Mesma conta do script (sobra.py resumo_de): o que a conferência grava. */
+export function resumoSobra(s: Pick<Sobra, "itens" | "respostas">): { linhas: LinhaResumo[]; incoerencias: string[] } {
+  const linhas: LinhaResumo[] = [];
+  const incoerencias: string[] = [];
+  const f = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+  (s.respostas || []).forEach((r, i) => {
+    const it = s.itens[i];
+    if (!it) return;
+    const total = totalNaLoja(it);
+    const sob = r3(r.sobrou || 0), per = r3(r.perdeu || 0);
+    const vend = r3(total - sob - per);
+    linhas.push({
+      cultura: it.cultura, unidade: it.unidade, rotulo: it.rotulo, destino: it.destino,
+      anterior: it.anterior || 0, colhido: it.colhido || 0, total,
+      sobrou: sob, perdeu: per, vendido: vend,
+      fica: it.destino === "fica" ? sob : 0, xepa: it.destino === "xepa" ? sob : 0,
+    });
+    if (vend < 0) incoerencias.push(`${it.cultura}: sobrou + perdeu (${f(r3(sob + per))}) passa do total (${f(total)}).`);
+    else if (total > 0 && sob + per === 0 && !it.colhido) incoerencias.push(`${it.cultura}: tinha ${f(total)} da feira anterior e sobrou 0 — vendeu tudo?`);
+  });
+  return { linhas, incoerencias };
+}
+
+/** Sobra cujos quadros foram todos levados para uma sobra de feira posterior (sobra.py ativas). */
+export function substitutaDe(s: Sobra, todas: Sobra[]): Sobra | null {
+  if (!s.sessoes?.length) return null;
+  return todas.find(o => o.id !== s.id && o.feira > s.feira && s.sessoes.every(x => (o.sessoes || []).includes(x))) || null;
+}

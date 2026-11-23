@@ -68,7 +68,7 @@ export function agruparItens(itens: SobraItem[]) {
   const xepa: number[] = [], fica: number[] = [];
   itens.forEach((it, i) => (it.destino === "xepa" ? xepa : fica).push(i));
   return [
-    { titulo: "Folhas, ervas e alfaces", nota: "O que sobrar vai para a xepa.", indices: xepa },
+    { titulo: "Folhas, ervas, alfaces e brócolis", nota: "O que sobrar vai para a xepa.", indices: xepa },
     { titulo: "Frutas, legumes e raízes", nota: "O que sobrar fica para a próxima feira.", indices: fica },
   ].filter(g => g.indices.length > 0);
 }

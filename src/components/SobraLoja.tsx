@@ -33,7 +33,8 @@ function apagarRascunho(id: string) {
 
 const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
-export default function SobraLoja({ id, fixo = false }: { id: string; fixo?: boolean }) {
+// fixo: token do link fixo da loja, quando a tela foi aberta por ele.
+export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
   const [estado, setEstado] = useState<Estado>("carregando");
   const [feira, setFeira] = useState("");
   const [itens, setItens] = useState<SobraItem[]>([]);
@@ -110,6 +111,15 @@ export default function SobraLoja({ id, fixo = false }: { id: string; fixo?: boo
     if (faltando > 0) return;
     setEnviando(true);
     try {
+      if (fixo) {
+        // Confere se esta ainda é a lista mais recente antes de gravar.
+        const atual = await getDoc(doc(db, "lojas", fixo));
+        if (atual.exists() && atual.data().sobraId !== id) {
+          setErroEnvio("Chegou uma lista nova. A tela vai recarregar com a sobra certa.");
+          setTimeout(() => window.location.reload(), 1500);
+          return;
+        }
+      }
       const respostas: SobraResposta[] = linhas.map(l => ({
         sobrou: lerNumero(l.sobrou) ?? 0,
         perdeu: l.perdeu.trim() === "" ? 0 : (lerNumero(l.perdeu) ?? 0),

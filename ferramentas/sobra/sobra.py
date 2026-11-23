@@ -91,6 +91,18 @@ def ordenar(itens):
     return sorted(itens, key=lambda i: (i["destino"] != "xepa", norm(i["cultura"])))
 
 
+def ativas(sobras):
+    """Ignora a sobra cujos quadros foram todos levados para outra sobra."""
+    out = []
+    for s in sobras:
+        meus = set(s.get("sessoes", []))
+        if meus and any(o is not s and meus <= set(o.get("sessoes", [])) and o.get("feira", "") > s.get("feira", "")
+                        for o in sobras):
+            continue
+        out.append(s)
+    return out
+
+
 def ultima_conferida(sobras, antes_de):
     conf = [s for s in sobras if s.get("status") == "conferida" and s.get("feira", "") < antes_de]
     return max(conf, key=lambda s: s["feira"]) if conf else None
@@ -123,7 +135,7 @@ def cmd_gerar(sessoes, gravar, token, uid, email):
     feira = feiras[0]
 
     crops = {norm(c["nome"]): c for c in listar("crops", token)}
-    sobras = listar("sobras", token)
+    sobras = ativas(listar("sobras", token))
     pend, avisos = [], []
 
     # Colhido por cultura, na unidade da cultura.

@@ -84,6 +84,8 @@ export interface Sobra {
   itens: SobraItem[];
   sessoes: string[];
   respostas?: SobraResposta[];
+  /** Feita pelo previsto do quadro; o "chegou" ainda não é o colhido de verdade. */
+  previsto?: boolean;
   quemContou?: string;
   obs?: string;
   enviadoEm?: Date | null;
@@ -112,9 +114,10 @@ export function resumoSobra(s: Pick<Sobra, "itens" | "respostas">): { linhas: Li
   const linhas: LinhaResumo[] = [];
   const incoerencias: string[] = [];
   const f = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
-  (s.respostas || []).forEach((r, i) => {
-    const it = s.itens[i];
-    if (!it) return;
+  // Item que entrou depois de a loja responder (colhido fora do previsto) conta com sobra 0.
+  s.itens.forEach((it, i) => {
+    const r = s.respostas?.[i] || { sobrou: 0, perdeu: 0 };
+    if (!s.respostas) return;
     const total = totalNaLoja(it);
     const sob = r3(r.sobrou || 0), per = r3(r.perdeu || 0);
     const vend = r3(total - sob - per);

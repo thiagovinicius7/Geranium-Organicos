@@ -12,7 +12,18 @@ próxima. Um segundo quadro da mesma feira entra no mesmo formulário enquanto a
 loja não respondeu. Folhas, ervas, alfaces e brócolis vão para a xepa; o resto fica.
 Regras iguais a src/lib/sobra.ts.
 
+Quadro só com o previsto (P), no dia da feira: "previsto" gera a sobra com o
+previsto como "chegou" (campo previsto=true), para a loja já contar. Quando o
+quadro definitivo (R) é lançado, a mesma sobra recebe o realizado: o "chegou"
+de cada item vira o colhido de verdade (0 se não colheu) e itens colhidos fora
+do previsto entram no fim da lista, sem resposta da loja (sobra 0). A ordem
+dos itens não muda, para as respostas da loja continuarem nos mesmos itens.
+Sobra com previsto não se confere.
+
 Uso:
+  python3 sobra.py previsto previsto.json            sobra pelo previsto (não grava)
+  python3 sobra.py previsto previsto.json --gravar   grava e aponta o link fixo
+        previsto.json = {"data": "2026-11-25", "itens": [{"cultura": "Couve", "qtd": 10}, …]}
   python3 sobra.py gerar COL-261121-AB12 [COL-…]     mostra o formulário (não grava)
   python3 sobra.py gerar COL-261121-AB12 --gravar    grava e imprime o link da loja
   python3 sobra.py listar                            formulários recentes e status
@@ -151,6 +162,9 @@ def cmd_gerar(sessoes, gravar, token, uid, email):
 
     # Formulário já existente para esta feira?
     mesma = [s for s in sobras if s.get("feira") == feira]
+    prev = next((s for s in mesma if s.get("previsto") and s.get("status") in ("aberta", "enviada")), None)
+    if prev:
+        return realizar(prev, sessoes, colhido, avisos, gravar, token)
     existente = None
     for s in mesma:
         if set(sessoes) <= set(s.get("sessoes", [])):
@@ -230,11 +244,127 @@ def cmd_gerar(sessoes, gravar, token, uid, email):
     print(f"(link só desta sobra: {LINK}{did})")
 
 
+# ---------------------------------------------------------------- previsto
+
+def itens_do_previsto(prev_json, crops):
+    itens, faltam = {}, []
+    for it in prev_json["itens"]:
+        crop = crops.get(norm(it["cultura"]))
+        if not crop:
+            faltam.append(it["cultura"]); continue
+        u = unidade_app(crop.get("unidadeColheita") or "UN")
+        k = (crop["nome"], u)
+        q = r3(itens.get(k, {}).get("colhido", 0) + (it.get("qtd") or 0))
+        itens[k] = {"cultura": k[0], "unidade": u, "rotulo": rotulo(*k), "destino": destino(*k),
+                    "anterior": 0, "colhido": q, "previsto": q}
+    return itens, faltam
+
+
+def cmd_previsto(caminho, gravar, token, uid, email):
+    import json
+    q = json.load(open(caminho, encoding="utf-8"))
+    data = q["data"]
+    feira = proxima_feira(data)
+    crops = {norm(c["nome"]): c for c in listar("crops", token)}
+    sobras = ativas(listar("sobras", token))
+    itens, faltam = itens_do_previsto(q, crops)
+    if faltam:
+        sys.exit(f"Culturas que não existem no app: {', '.join(faltam)}")
+    mesma = [s for s in sobras if s.get("feira") == feira]
+    if mesma:
+        sys.exit(f"Já existe sobra para a feira {feira_extensa(feira)} ({mesma[0]['_docId']}, {mesma[0].get('status')}).")
+    avisos = []
+    for s in sobras:
+        if s.get("feira", "") < feira and s.get("status") in ("aberta", "enviada"):
+            avisos.append(f"A sobra de {feira_extensa(s['feira'])} ainda está {s['status']} (não conferida): "
+                          f"o que ficou dela não entra neste formulário.")
+    base = ultima_conferida(sobras, feira)
+    if base:
+        for r in base.get("resumo", []):
+            if r.get("fica", 0) > 0:
+                k = (r["cultura"], r["unidade"])
+                if k not in itens:
+                    itens[k] = {"cultura": k[0], "unidade": k[1], "rotulo": r.get("rotulo") or rotulo(*k),
+                                "destino": r.get("destino") or destino(*k), "anterior": 0, "colhido": 0, "previsto": 0}
+                itens[k]["anterior"] = r3(r["fica"])
+    lista = ordenar(itens.values())
+    print(f"\nSOBRA (PREVISTO) DA FEIRA DE {feira_extensa(feira).upper()} — quadro de {data}")
+    if base:
+        print(f"Ficou de: sobra de {feira_extensa(base['feira'])} (conferida)")
+    print(f"\n{'Produto':26} {'unid.':8} {'ficou':>7} {'previsto':>8} {'total':>7}  destino")
+    for i in lista:
+        print(f"{i['cultura']:26} {i['rotulo']:8} {fmt(i['anterior']):>7} {fmt(i['colhido']):>8} "
+              f"{fmt(r3(i['anterior'] + i['colhido'])):>7}  {i['destino']}")
+    for a in avisos:
+        print("AVISO:", a)
+    if not gravar:
+        print("\n(nada gravado; use --gravar depois do ok)")
+        return
+    did = rand(20, string.ascii_letters + string.digits)
+    dados = {"feira": feira, "sessoes": [], "status": "aberta", "itens": lista, "previsto": True,
+             "dataQuadro": data, "criadoPor": uid, "criadoPorEmail": email, "origem": "previsto"}
+    if base:
+        dados["anteriorId"] = base["_docId"]
+    w = {"update": {"name": f"{ROOT}/sobras/{did}", "fields": campos_fs(dados)}, "currentDocument": {"exists": False},
+         "updateTransforms": [{"fieldPath": "criadoEm", "setToServerValue": "REQUEST_TIME"}]}
+    http("POST", f"{BASE}:commit", {"writes": [w]}, token=token)
+    tok = apontar_loja(did, feira, token)
+    print(f"\nGRAVADO (previsto). O link fixo da Bioloja já abre esta sobra:\n{LINK_FIXO}{tok}")
+    print(f"(link só desta sobra: {LINK}{did})")
+
+
+def realizar(prev, sessoes, colhido, avisos, gravar, token):
+    """O quadro definitivo entra na sobra que estava com o previsto."""
+    por_cultura = {}
+    for (cult, u), q in colhido.items():
+        por_cultura[norm(cult)] = (cult, u, q)
+    itens, usados, mudou = [], set(), []
+    resp = prev.get("respostas") or []
+    for i, it in enumerate(prev["itens"]):
+        it = dict(it)
+        real = por_cultura.get(norm(it["cultura"]))
+        novo = real[2] if real else 0
+        if real: usados.add(norm(it["cultura"]))
+        if novo != it.get("colhido", 0):
+            mudou.append(f"{it['cultura']}: previsto {fmt(it.get('colhido', 0))} → colhido {fmt(novo)} {it['rotulo']}")
+        it.setdefault("previsto", it.get("colhido", 0))
+        it["colhido"] = novo
+        r = resp[i] if i < len(resp) else None
+        if novo == 0 and it.get("anterior", 0) == 0 and r and (r.get("sobrou") or r.get("perdeu")):
+            avisos.append(f"{it['cultura']}: não foi colhido, mas a loja anotou sobra/perda.")
+        itens.append(it)
+    novos = [v for k, v in por_cultura.items() if k not in usados]
+    for cult, u, q in sorted(novos, key=lambda x: norm(x[0])):
+        itens.append({"cultura": cult, "unidade": u, "rotulo": rotulo(cult, u), "destino": destino(cult, u),
+                      "anterior": 0, "colhido": q, "previsto": 0})
+        if prev.get("status") == "enviada":
+            avisos.append(f"{cult}: colhido {fmt(q)} {rotulo(cult, u)} sem estar no previsto — a loja não contou a sobra (entra 0). Confirme com a loja.")
+    print(f"\nSOBRA DA FEIRA DE {feira_extensa(prev['feira']).upper()} — previsto → realizado ({prev['_docId']}, {prev.get('status')})")
+    for m in mudou:
+        print("  ", m)
+    if not mudou:
+        print("   (realizado igual ao previsto)")
+    for a in avisos:
+        print("AVISO:", a)
+    if not gravar:
+        print("\n(nada gravado; use --gravar depois do ok)")
+        return
+    w = {"update": {"name": f"{ROOT}/sobras/{prev['_docId']}",
+                    "fields": campos_fs({"itens": itens, "sessoes": prev.get("sessoes", []) + sessoes, "previsto": False})},
+         "updateMask": {"fieldPaths": ["itens", "sessoes", "previsto", "realizadoEm"]}, "currentDocument": {"exists": True},
+         "updateTransforms": [{"fieldPath": "realizadoEm", "setToServerValue": "REQUEST_TIME"}]}
+    http("POST", f"{BASE}:commit", {"writes": [w]}, token=token)
+    print(f"\nGRAVADO: a sobra de {feira_extensa(prev['feira'])} agora tem o realizado. "
+          + ("Já dá para conferir." if prev.get("status") == "enviada" else "A loja ainda não enviou."))
+
+
 # ---------------------------------------------------------------- conferir
 
 def resumo_de(s, xepa, fica):
     linhas, incoer = [], []
-    for it, r in zip(s["itens"], s.get("respostas", [])):
+    resp = s.get("respostas", [])
+    for i, it in enumerate(s["itens"]):
+        r = resp[i] if i < len(resp) and resp[i] else {"sobrou": 0, "perdeu": 0}
         dest = it["destino"]
         if norm(it["cultura"]) in xepa: dest = "xepa"
         if norm(it["cultura"]) in fica: dest = "fica"
@@ -259,6 +389,8 @@ def cmd_conferir(did, gravar, xepa, fica, token, uid):
         sys.exit("Formulário não encontrado.")
     if s.get("status") != "enviada":
         sys.exit(f"Status '{s.get('status')}': só dá para conferir depois que a loja envia (e uma vez só).")
+    if s.get("previsto"):
+        sys.exit("Esta sobra ainda está com o PREVISTO. Lance o quadro definitivo antes de conferir.")
     linhas, incoer = resumo_de(s, xepa, fica)
     print(f"\nSOBRA DA FEIRA DE {feira_extensa(s['feira']).upper()} — contou: {s.get('quemContou', '')}")
     if s.get("obs"):
@@ -283,7 +415,8 @@ def cmd_conferir(did, gravar, xepa, fica, token, uid):
 
 def cmd_listar(token):
     for s in sorted(listar("sobras", token), key=lambda x: x.get("feira", ""), reverse=True)[:12]:
-        print(f"{s.get('feira')}  {feira_extensa(s['feira']):20} {s.get('status'):10} {len(s.get('itens', [])):3} itens  "
+        st = s.get('status') + (" (previsto)" if s.get("previsto") else "")
+        print(f"{s.get('feira')}  {feira_extensa(s['feira']):20} {st:21} {len(s.get('itens', [])):3} itens  "
               f"{s.get('quemContou', ''):15} {LINK}{s['_docId']}")
 
 
@@ -311,13 +444,15 @@ def main():
         if not a.startswith("--"):
             pos.append(a)
         i += 1
-    if not pos or pos[0] not in ("gerar", "conferir", "listar", "link"):
+    if not pos or pos[0] not in ("gerar", "conferir", "listar", "link", "previsto"):
         sys.exit(__doc__)
     token, uid, email = login(os.environ["GERANIUM_EMAIL"], os.environ["GERANIUM_SENHA"])
     if pos[0] == "gerar" and len(pos) >= 2:
         cmd_gerar(pos[1:], gravar, token, uid, email)
     elif pos[0] == "conferir" and len(pos) == 2:
         cmd_conferir(pos[1], gravar, xepa, fica, token, uid)
+    elif pos[0] == "previsto" and len(pos) == 2:
+        cmd_previsto(pos[1], gravar, token, uid, email)
     elif pos[0] == "listar":
         cmd_listar(token)
     elif pos[0] == "link":

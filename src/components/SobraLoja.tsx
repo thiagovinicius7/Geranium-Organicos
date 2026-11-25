@@ -38,6 +38,7 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
   const [estado, setEstado] = useState<Estado>("carregando");
   const [feira, setFeira] = useState("");
   const [itens, setItens] = useState<SobraItem[]>([]);
+  const [previsto, setPrevisto] = useState(false);
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [quem, setQuem] = useState("");
   const [obs, setObs] = useState("");
@@ -54,6 +55,7 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
       const lista: SobraItem[] = d.itens || [];
       setFeira(d.feira || "");
       setItens(lista);
+      setPrevisto(!!d.previsto);
       const respostas: SobraResposta[] = d.respostas || [];
       const rascunho = lerRascunho(id);
       const base: Linha[] = lista.map((_, i) => ({
@@ -204,6 +206,11 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
         <p>No fim da feira, conte o que sobrou de cada produto.</p>
         <p><b>Sobrou</b> = está bom. <b>Perdeu</b> = foi para o lixo. Se não sobrou nada, escreva <b>0</b>.</p>
       </div>
+      {previsto && (
+        <div className="mx-3 mt-3 rounded-xl bg-orange-50 border border-orange-200 px-4 py-3 text-base text-orange-900">
+          As quantidades de <b>Chegou</b> são as <b>previstas</b> no quadro. Conte a sobra normalmente; o número certo do que chegou entra depois.
+        </div>
+      )}
 
       <main className="px-3 py-4 space-y-6">
         {grupos.map(g => (
@@ -223,7 +230,7 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
                     </div>
                     <p className="text-sm text-slate-600 mt-1">
                       {it.anterior > 0 && <>Ficou da feira anterior: <b>{fmt(it.anterior)}</b> · </>}
-                      Chegou: <b>{it.colhido > 0 ? fmt(it.colhido) : "—"}</b>
+                      {previsto ? "Previsto" : "Chegou"}: <b>{it.colhido > 0 ? fmt(it.colhido) : "—"}</b>
                       {it.anterior > 0 && <> · Total: <b>{fmt(totalNaLoja(it))}</b></>}
                     </p>
                     <div className="grid grid-cols-2 gap-3 mt-3">

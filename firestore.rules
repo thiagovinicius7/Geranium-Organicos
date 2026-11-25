@@ -208,10 +208,25 @@ service cloud.firestore {
         && sobraItensOk(request.resource.data);
     }
 
+    // Sobra feita pelo previsto do quadro: quando o quadro definitivo é lançado,
+    // o "chegou" vira o realizado, mesmo que a loja já tenha enviado (antes da
+    // conferência). Itens só entram no fim; a lista não encolhe.
+    function launcherRealizesSobra() {
+      return isLauncher()
+        && resource.data.get('previsto', false) == true
+        && resource.data.get('status', '') in ['aberta', 'enviada']
+        && changed().hasOnly(['itens', 'sessoes', 'previsto', 'realizadoEm'])
+        && request.resource.data.previsto == false
+        && request.resource.data.realizadoEm == request.time
+        && request.resource.data.itens.size() >= resource.data.itens.size()
+        && sobraItensOk(request.resource.data);
+    }
+
     // Conferência: só depois de a loja enviar, e não volta atrás.
     function launcherChecksSobra() {
       return isLauncher()
         && resource.data.get('status', '') == 'enviada'
+        && resource.data.get('previsto', false) != true
         && changed().hasOnly(['status', 'resumo', 'conferidoPor', 'conferidoEm'])
         && request.resource.data.status == 'conferida'
         && request.resource.data.conferidoPor == request.auth.uid
@@ -256,7 +271,7 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isMember();
       allow create: if canEdit() || launcherCreatesSobra();
-      allow update: if canEdit() || launcherExtendsSobra() || launcherChecksSobra() || shopSubmitsSobra();
+      allow update: if canEdit() || launcherExtendsSobra() || launcherRealizesSobra() || launcherChecksSobra() || shopSubmitsSobra();
       allow delete: if canEdit();
     }
 

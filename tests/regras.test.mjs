@@ -36,6 +36,8 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, "sobras", "sAberta2"), { status: "aberta", feira: "2026-11-27", sessoes: ["COL-3"], itens });
   await setDoc(doc(db, "sobras", "sEnviada"), { status: "enviada", feira: "2026-11-21", sessoes: ["COL-0"], itens,
     respostas: [{ sobrou: 1, perdeu: 0 }, { sobrou: 0, perdeu: 0 }], quemContou: "Ana", enviadoEm: hoursAgo(1) });
+  await setDoc(doc(db, "sobras", "sPrev"), { status: "enviada", previsto: true, feira: "2026-11-25", sessoes: [], itens,
+    respostas: [{ sobrou: 1, perdeu: 0 }, { sobrou: 0, perdeu: 0 }], quemContou: "Ana", enviadoEm: hoursAgo(1) });
   await setDoc(doc(db, "sobras", "sConferida"), { status: "conferida", feira: "2026-11-20", sessoes: [], itens, resumo: [] });
 });
 
@@ -158,6 +160,13 @@ await t("lanc NÃO cria formulário já respondido", false, () => addDoc(collect
 await t("lanc NÃO cria formulário sem itens", false, () => addDoc(collection(L, "sobras"), { ...novaSobra, itens: [] }));
 await t("lanc acrescenta outro quadro à lista aberta", true, () => updateDoc(doc(L, "sobras", "sAberta2"), { itens: [...[{ cultura: "Banana Prata", unidade: "KG" }, { cultura: "Couve", unidade: "MÇ" }], { cultura: "Inhame", unidade: "KG" }], sessoes: ["COL-3", "COL-4"] }));
 await t("lanc NÃO aumenta lista já respondida", false, () => updateDoc(doc(L, "sobras", "sEnviada"), { itens: [{ cultura: "X" }], sessoes: ["A"] }));
+const itens3 = [{ cultura: "Banana Prata", unidade: "KG" }, { cultura: "Couve", unidade: "MÇ" }, { cultura: "Inhame", unidade: "KG" }];
+await t("lanc NÃO confere sobra que ainda está no previsto", false, () => updateDoc(doc(L, "sobras", "sPrev"), { status: "conferida", resumo: [], conferidoPor: "lanc", conferidoEm: serverTimestamp() }));
+await t("lanc NÃO troca o previsto por menos itens", false, () => updateDoc(doc(L, "sobras", "sPrev"), { itens: [{ cultura: "Couve", unidade: "MÇ" }], sessoes: ["COL-9"], previsto: false, realizadoEm: serverTimestamp() }));
+await t("lanc NÃO mexe nas respostas ao realizar", false, () => updateDoc(doc(L, "sobras", "sPrev"), { itens: itens3, sessoes: ["COL-9"], previsto: false, realizadoEm: serverTimestamp(), respostas: [] }));
+await t("lanc NÃO realiza sobra que não é de previsto", false, () => updateDoc(doc(L, "sobras", "sEnviada"), { itens: itens3, sessoes: ["COL-9"], previsto: false, realizadoEm: serverTimestamp() }));
+await t("lanc troca o previsto pelo realizado depois de a loja enviar", true, () => updateDoc(doc(L, "sobras", "sPrev"), { itens: itens3, sessoes: ["COL-9"], previsto: false, realizadoEm: serverTimestamp() }));
+await t("lanc NÃO realiza de novo", false, () => updateDoc(doc(L, "sobras", "sPrev"), { itens: itens3, sessoes: ["COL-9", "COL-10"], previsto: false, realizadoEm: serverTimestamp() }));
 await t("lanc confere a sobra enviada", true, () => updateDoc(doc(L, "sobras", "sEnviada"), { status: "conferida", resumo: [{ cultura: "Couve" }], conferidoPor: "lanc", conferidoEm: serverTimestamp() }));
 await t("lanc NÃO confere em nome de outro", false, () => updateDoc(doc(L, "sobras", "sAberta"), { status: "conferida", resumo: [], conferidoPor: "outro", conferidoEm: serverTimestamp() }));
 await t("lanc NÃO apaga formulário", false, () => deleteDoc(doc(L, "sobras", "sConferida")));

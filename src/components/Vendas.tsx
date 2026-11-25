@@ -105,7 +105,7 @@ export default function Vendas({ onNotify }: Props) {
         const x = d.data() as any;
         return {
           id: d.id, feira: x.feira || "", status: x.status || "aberta", itens: x.itens || [], sessoes: x.sessoes || [],
-          respostas: x.respostas, quemContou: x.quemContou, resumo: x.resumo,
+          respostas: x.respostas, previsto: !!x.previsto, quemContou: x.quemContou, resumo: x.resumo,
           enviadoEm: toDate(x.enviadoEm), conferidoEm: toDate(x.conferidoEm),
         };
       }));

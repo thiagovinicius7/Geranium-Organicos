@@ -47,6 +47,7 @@ export default function Sobras({ onNotify }: Props) {
           itens: x.itens || [],
           sessoes: x.sessoes || [],
           respostas: x.respostas,
+          previsto: !!x.previsto,
           quemContou: x.quemContou,
           obs: x.obs,
           resumo: x.resumo,
@@ -93,7 +94,7 @@ export default function Sobras({ onNotify }: Props) {
     { titulo: "Frutas, legumes e raízes", nota: "A sobra fica para a próxima feira.", linhas: linhas.filter(l => l.destino !== "xepa") },
   ].filter(g => g.linhas.length);
 
-  const podeConferir = sel?.status === "enviada" && !substituta && (canEdit || isLauncher) && !!uid;
+  const podeConferir = sel?.status === "enviada" && !sel?.previsto && !substituta && (canEdit || isLauncher) && !!uid;
 
   const conferir = async () => {
     if (!sel || !uid) return;
@@ -183,6 +184,7 @@ export default function Sobras({ onNotify }: Props) {
                     <div className="font-semibold text-slate-800">{dataFeiraExtensa(s.feira)}</div>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1">
                       <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${st.cor}`}>{st.rotulo}</span>
+                      {s.previsto && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-orange-100 text-orange-800 border-orange-200">Previsto</span>}
                       {s.id === lojaSobraId && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-violet-100 text-violet-800 border-violet-200">No link da loja</span>}
                       {sub && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-600 border-slate-200">Passada para {sub.feira.slice(8, 10)}/{sub.feira.slice(5, 7)}</span>}
                     </div>
@@ -216,6 +218,11 @@ export default function Sobras({ onNotify }: Props) {
                   )}
                 </div>
 
+                {sel.previsto && (
+                  <div className="mt-3 text-sm bg-orange-50 border border-orange-200 rounded-lg p-3 text-orange-900">
+                    Lista feita pelo <b>previsto</b> do quadro. Quando o quadro definitivo for lançado, o “chegou” vira o colhido de verdade; só então dá para conferir.
+                  </div>
+                )}
                 {substituta && (
                   <div className="mt-3 text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600">
                     Os quadros desta sobra foram levados para a feira de {dataFeiraExtensa(substituta.feira)}. Use aquela; esta não entra na conta.

@@ -82,7 +82,7 @@ export function rotuloCurto(chave: string, modo: Modo): string {
  */
 export function feirasRespondidas(sobras: (Sobra & { resumo?: LinhaResumo[] })[]): RegistroFeira[] {
   return sobras
-    .filter(s => (s.status === "enviada" || s.status === "conferida") && !substitutaDe(s, sobras))
+    .filter(s => (s.status === "enviada" || s.status === "conferida") && !s.previsto && !substitutaDe(s, sobras))
     .map(s => ({
       feira: s.feira,
       linhas: s.status === "conferida" && s.resumo?.length ? s.resumo : resumoSobra(s).linhas,

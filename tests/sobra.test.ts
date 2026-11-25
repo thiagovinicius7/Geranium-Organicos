@@ -50,5 +50,9 @@ eq("rastreio: dois plantios dividem na proporção", destinoNaLoja([{ idSessao: 
 eq("rastreio: aberta sem números", destinoNaLoja(minhas, [{ ...f18, status: "aberta", respostas: undefined }])[0].sobrou, null);
 eq("rastreio: plantio fora da feira", destinoNaLoja([{ idSessao: "X", cultura: "Alface Americana", qtd: 1 }], [f18]).length, 0);
 
+// Item colhido fora do previsto entra depois da resposta da loja: conta com sobra 0.
+const rx = resumoSobra({ itens: [couve, banana], respostas: [{ sobrou: 2, perdeu: 0 }] });
+eq("item sem resposta entra com sobra 0", [rx.linhas.length, rx.linhas[1].sobrou, rx.linhas[1].vendido], [2, 0, totalNaLoja(banana)]);
+
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

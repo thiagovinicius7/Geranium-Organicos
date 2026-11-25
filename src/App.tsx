@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, lazy, Suspense } from "react";
 const Dashboard = lazy(() => import("./components/Dashboard"));
 const Planejamento = lazy(() => import("./components/Planejamento"));
 const Sobras = lazy(() => import("./components/Sobras"));
+const Vendas = lazy(() => import("./components/Vendas"));
 const Crops = lazy(() => import("./components/Crops"));
 const Purchases = lazy(() => import("./components/Purchases"));
 const Plantings = lazy(() => import("./components/Plantings"));
@@ -37,10 +38,11 @@ import {
   Smartphone,
   CalendarRange,
   Store,
+  BarChart3,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest" | "planning" | "sobras";
+type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest" | "planning" | "sobras" | "vendas";
 
 interface AppAuthUser {
   uid: string;
@@ -170,6 +172,7 @@ export default function App() {
     { id: "harvests" as const, label: "Colheita Diária", icon: Droplets },
     { id: "planning" as const, label: "Planejamento", icon: CalendarRange },
     { id: "sobras" as const, label: "Sobras da Loja", icon: Store },
+    { id: "vendas" as const, label: "Análise de Vendas", icon: BarChart3 },
     { id: "traceability" as const, label: "Rastreabilidade", icon: Search },
     { id: "mobile_harvest" as const, label: "App Celular (Colheita)", icon: Smartphone },
     ...(permissions.canEdit
@@ -587,6 +590,7 @@ export default function App() {
               {activeTab === "import" && permissions.canEdit && <Importer onNotify={addNotification} />}
               {activeTab === "planning" && <Planejamento onNotify={addNotification} />}
               {activeTab === "sobras" && <Sobras onNotify={addNotification} />}
+              {activeTab === "vendas" && <Vendas onNotify={addNotification} />}
               {activeTab === "guide" && <UserGuide />}
               </Suspense>
             </motion.div>

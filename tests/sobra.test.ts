@@ -54,5 +54,8 @@ eq("rastreio: plantio fora da feira", destinoNaLoja([{ idSessao: "X", cultura: "
 const rx = resumoSobra({ itens: [couve, banana], respostas: [{ sobrou: 2, perdeu: 0 }] });
 eq("item sem resposta entra com sobra 0", [rx.linhas.length, rx.linhas[1].sobrou, rx.linhas[1].vendido], [2, 0, totalNaLoja(banana)]);
 
+const pv = resumoSobra({ itens: [couve], respostas: [{ sobrou: 999, perdeu: 0 }], previsto: true }).incoerencias;
+eq("pelo previsto: passar do previsto só pede conferir com o quadro final", [pv.length, /previsto/.test(pv[0])], [1, true]);
+
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

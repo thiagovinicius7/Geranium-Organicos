@@ -110,7 +110,7 @@ export interface LinhaResumo {
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
 /** Mesma conta do script (sobra.py resumo_de): o que a conferência grava. */
-export function resumoSobra(s: Pick<Sobra, "itens" | "respostas">): { linhas: LinhaResumo[]; incoerencias: string[] } {
+export function resumoSobra(s: Pick<Sobra, "itens" | "respostas" | "previsto">): { linhas: LinhaResumo[]; incoerencias: string[] } {
   const linhas: LinhaResumo[] = [];
   const incoerencias: string[] = [];
   const f = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
@@ -127,7 +127,8 @@ export function resumoSobra(s: Pick<Sobra, "itens" | "respostas">): { linhas: Li
       sobrou: sob, perdeu: per, vendido: vend,
       fica: it.destino === "fica" ? sob : 0, xepa: it.destino === "xepa" ? sob : 0,
     });
-    if (vend < 0) incoerencias.push(`${it.cultura}: sobrou + perdeu (${f(r3(sob + per))}) passa do total (${f(total)}).`);
+    if (vend < 0 && s.previsto) incoerencias.push(`${it.cultura}: sobrou + perdeu (${f(r3(sob + per))}) passa do previsto (${f(total)}) — chegou mais que o previsto? Confere com o quadro final.`);
+    else if (vend < 0) incoerencias.push(`${it.cultura}: sobrou + perdeu (${f(r3(sob + per))}) passa do total (${f(total)}).`);
     else if (total > 0 && sob + per === 0 && !it.colhido) incoerencias.push(`${it.cultura}: tinha ${f(total)} da feira anterior e sobrou 0 — vendeu tudo?`);
   });
   return { linhas, incoerencias };

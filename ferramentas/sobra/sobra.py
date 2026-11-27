@@ -332,6 +332,8 @@ def realizar(prev, sessoes, colhido, avisos, gravar, token):
         r = resp[i] if i < len(resp) else None
         if novo == 0 and it.get("anterior", 0) == 0 and r and (r.get("sobrou") or r.get("perdeu")):
             avisos.append(f"{it['cultura']}: não foi colhido, mas a loja anotou sobra/perda.")
+        elif r and r3((r.get("sobrou") or 0) + (r.get("perdeu") or 0)) > r3(it.get("anterior", 0) + novo):
+            avisos.append(f"{it['cultura']}: a loja anotou sobra + perda ({fmt(r3((r.get('sobrou') or 0) + (r.get('perdeu') or 0)))}) acima do total com o quadro final ({fmt(r3(it.get('anterior', 0) + novo))}). Confirme com a loja.")
         itens.append(it)
     novos = [v for k, v in por_cultura.items() if k not in usados]
     for cult, u, q in sorted(novos, key=lambda x: norm(x[0])):

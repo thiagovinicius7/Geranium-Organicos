@@ -98,8 +98,12 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
     const s = lerNumero(l.sobrou) ?? 0;
     const p = l.perdeu.trim() === "" ? 0 : (lerNumero(l.perdeu) ?? 0);
     const total = totalNaLoja(it);
-    return s + p > total ? `Sobrou + perdeu (${fmt(s + p)}) passa do total na loja (${fmt(total)}). Confira.` : "";
-  }), [itens, linhas]);
+    if (s + p <= total) return "";
+    // Pelo previsto, o que chegou de verdade pode ser mais: vale o que a loja contou.
+    return previsto
+      ? `Passa do previsto (${fmt(total)}). Tudo bem: escreva o que sobrou de verdade. O que chegou de verdade entra com o quadro final.`
+      : `Sobrou + perdeu (${fmt(s + p)}) passa do total na loja (${fmt(total)}). Confira.`;
+  }), [itens, linhas, previsto]);
 
   const faltando = problemas.filter(Boolean).length + (quem.trim() ? 0 : 1);
 
@@ -208,7 +212,7 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
       </div>
       {previsto && (
         <div className="mx-3 mt-3 rounded-xl bg-orange-50 border border-orange-200 px-4 py-3 text-base text-orange-900">
-          As quantidades de <b>Chegou</b> são as <b>previstas</b> no quadro. Conte a sobra normalmente; o número certo do que chegou entra depois.
+          As quantidades de <b>Chegou</b> são as <b>previstas</b> no quadro. Conte a sobra normalmente. Se chegou e sobrou <b>mais</b> do que o previsto, escreva o número de verdade: o que chegou de verdade entra depois, com o quadro final.
         </div>
       )}
 

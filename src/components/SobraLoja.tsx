@@ -98,11 +98,9 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
     const s = lerNumero(l.sobrou) ?? 0;
     const p = l.perdeu.trim() === "" ? 0 : (lerNumero(l.perdeu) ?? 0);
     const total = totalNaLoja(it);
-    if (s + p <= total) return "";
-    // Pelo previsto, o que chegou de verdade pode ser mais: vale o que a loja contou.
-    return previsto
-      ? `Passa do previsto (${fmt(total)}). Tudo bem: escreva o que sobrou de verdade. O que chegou de verdade entra com o quadro final.`
-      : `Sobrou + perdeu (${fmt(s + p)}) passa do total na loja (${fmt(total)}). Confira.`;
+    // Pelo previsto, aceita o que a loja contou, sem aviso: a conta fecha com o quadro final.
+    if (previsto || s + p <= total) return "";
+    return `Sobrou + perdeu (${fmt(s + p)}) passa do total na loja (${fmt(total)}). Confira.`;
   }), [itens, linhas, previsto]);
 
   const faltando = problemas.filter(Boolean).length + (quem.trim() ? 0 : 1);

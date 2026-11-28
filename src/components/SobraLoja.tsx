@@ -208,7 +208,7 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
       {cabecalho}
       <div className="px-4 py-4 space-y-2 text-base text-slate-700 bg-emerald-50 border-b border-emerald-100">
         <p>No fim da feira, conte o que sobrou de cada produto.</p>
-        <p><b>Sobrou</b> = está bom. <b>Perdeu</b> = foi para o lixo. Se não sobrou nada, escreva <b>0</b>.</p>
+        <p><b>Sobrou</b> = está bom. <b>Perdeu</b> = foi para o lixo ou para a desidratação (escreva na observação para onde foi). Se não sobrou nada, escreva <b>0</b>.</p>
       </div>
       {previsto && (
         <div className="mx-3 mt-3 rounded-xl bg-orange-50 border border-orange-200 px-4 py-3 text-base text-orange-900">
@@ -279,7 +279,7 @@ export default function SobraLoja({ id, fixo }: { id: string; fixo?: string }) {
             <span className="block text-base font-bold text-slate-800 mb-1">Observação (opcional)</span>
             <textarea
               value={obs} onChange={e => setObs(e.target.value)} maxLength={500} rows={3}
-              placeholder="Ex.: a banana que sobrou foi para a xepa"
+              placeholder="Ex.: 59 kg de banana da perda foram para a desidratação"
               className="w-full rounded-xl border-2 border-slate-300 px-3 py-3 text-base outline-none focus:border-emerald-600"
             />
           </label>
